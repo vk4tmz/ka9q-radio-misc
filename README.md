@@ -26,6 +26,7 @@ I'd like to give thanks and attribute that most of my undersanding / solutions h
     * [Using "KA9Q-Radio"](https://www.sdrutah.org/info/using_ka9q_radio.html) 
     * [Using "KA9Q-Radio" with the RTL-SDR dongle](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rtlsdr.html) 
     * [Using "KA9Q-Radio" with the RX-888](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rx888.html) 
+    * [https://www.sdrutah.org/info/ka9q_radio_command_overview.html](https://www.sdrutah.org/info/ka9q_radio_command_overview.html)
 * Setting up Digital Mode Decoding
     * [WSPR Daemon](https://wsprdaemon.readthedocs.io/en/master/configuration/radiod%40.conf/hardware.html)
     * [FT8]() 
@@ -71,9 +72,9 @@ I've successfully previous set this device this up using:
 
 * [RX888_Stream](https://github.com/rhgndf/rx888_stream)
 
-Should be noted that I had more stability (ie starting up) RX888_Stream using the old code located under [old-buggy-c-code](https://github.com/rhgndf/rx888_stream/tree/old-buggy-c-code) branch. I'm sure it was originally mostly working, with the rust code version but then just would not initialise / connect to the rx888 device.
+    Should be noted that I had more stability (ie starting up) RX888_Stream using the old code located under [old-buggy-c-code](https://github.com/rhgndf/rx888_stream/tree/old-buggy-c-code) branch. I'm sure it was originally mostly working, with the rust code version but then just would not initialise / connect to the rx888 device.
 
-    * [PhantomSDR](https://github.com/PhantomSDR/PhantomSDR/wiki/Configuration-RX888)
+   * [PhantomSDR](https://github.com/PhantomSDR/PhantomSDR/wiki/Configuration-RX888)
 
 
 But now with KA9Q-radio the features and power it gives the RX888 is fantastic!
@@ -92,6 +93,18 @@ But now with KA9Q-radio the features and power it gives the RX888 is fantastic!
 ```
 radiod ~/tools/ka9q-radio-misc/ka9q-radio-cfg/
 ```
+
+### Starting KA9A-Radio WebSDR
+
+Its functional and provide means to view the whole 30 mhz spectrum, but not with out a few little bugs here there. 
+
+Also note this is hard coded for used with a SDR like the RX888 and expect 30MHZ of bandwidth. So not currently useful with RTLSDR dongles.
+
+```
+ka9q-web -m hf.local -p 8081 -n "VK4TMZ - QG62LQ - 40m EFHW ~7m (HAAT)"
+```
+
+Access your instance of [KA9Q-Radion WebSDR](http://localhost:8081)
 
 ## RTLSDR Dongles
 
