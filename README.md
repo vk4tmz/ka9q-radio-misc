@@ -134,6 +134,129 @@ monitor wspr-pcm.local
 monitor wwv-pcm.local
 ```
 
+### Decoding Digital Modes using KA9Q-Radio Feeds
+
+#### FT8/FT4
+
+A fairly straight forward process, with most instructions clearly outlined under [Decoding FT4 and FT8 with ka9q-radio](https://github.com/ka9q/ka9q-radio/blob/main/docs/ft8.md)
+
+* Install KA9Q-Radios forked version of 'ft8_lib'
+
+```
+cd ~/tools
+git clone https://github.com/ka9q/ft8_lib
+cd ft8_lib
+make 
+sudo make install && sudo ldconfig
+```
+
+* Create config files
+
+    * **/etc/radio/ft8-decode.conf**
+
+```
+MCAST=ft8-pcm.local
+DIRECTORY=/var/lib/ka9q-radio/ft8
+```
+    * **/etc/radio/ft4-decode.conf**
+
+```
+MCAST=ft4-pcm.local
+DIRECTORY=/var/lib/ka9q-radio/ft4
+```
+
+* Install and Running Services
+
+```
+sudo systemctl enable ft8-record ft4-record ft8-decode@1 ft4-decode@1
+sudo systemctl start ft8-record ft4-record ft8-decode@1 ft4-decode@1
+sudo systemctl status ft8-record ft4-record ft8-decode@1 ft4-decode@1
+
+sudo systemctl stop ft8-record ft4-record ft8-decode@1 ft4-decode@1
+sudo systemctl disable ft8-record ft4-record ft8-decode@1 ft4-decode@1
+```
+
+* Starting More Decoders (only if needing to process large backlog)
+
+Note that there's just one ft4-record and one ft8-record job so they do not take a @n suffix. The ft4-decode@ and ft8-decode@ jobs do require suffixes even if you only want one of each. If you want more, just add them like this:
+
+```
+sudo enable ft8-decode@2 ft8-decode@3 ...
+sudo start ft8-decode@2 ft8-decode@3 ...
+```
+
+though this really shouldn't be necessary unless a large backlog has built in a spool directory because ft8-record kept running when all ft8-decode@ jobs were stopped.
+
+* Checking on the Service Status 
+
+systemctl status ft8-record	'ft8-decode@*' ft4-record	'ft4-decode@*'
+
+
+* Reviewing Service Logs
+
+```
+journalctl -u 'ft8-decode@*'
+grep ft8-record /var/log/syslog
+```
+
+```
+journalctl -u 'ft4-decode@*'
+grep ft4-record /var/log/syslog
+```
+
+#### Monitoring FT8/FT9 Decode logs
+
+tail -f /var/log/ft8.log
+tail -f /var/log/ft4.log
+
+
+## KA9Q PSKReporter by Phil Glagstone
+
+There is one instance of pskreporter for each mode, i.e., pskreporter@ft8, pskreporter@ft4 or pskreporter@wspr. 
+
+* Chekckout the repo
+
+```
+cd ~/tools
+git clone https://www.github.com/pjsg/ftlib-pskreporter
+cd ftlib-pskreporter
+```
+
+* Deploy Python tools
+
+```
+sudo apt install python3-pip
+sudo apt install python3-docopt
+
+sudo python setup.py install
+```
+
+* Modify and add your callsign, locator and antenna to the ft*-pskreporter.conf files
+
+* Copy Config and Service files to system location
+
+```
+sudo cp ft*conf /etc/radio
+sudo cp wspr*conf /etc/radio
+sudo cp pskreporter@.service /etc/systemd/system/
+
+sudo cp pskreporter /usr/local/bin/
+```
+
+* Enable Services
+
+```
+sudo systemctl enable pskreporter@ft4 pskreporter@ft8 pskreporter@wspr
+sudo systemctl start pskreporter@ft4 pskreporter@ft8 pskreporter@wspr
+```
+
+* Review Service logs
+
+```
+journalctl -u 'pskreporter@*'
+```
+
+
 ## RTLSDR Dongles
 
 
