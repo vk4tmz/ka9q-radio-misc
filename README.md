@@ -15,7 +15,7 @@ I'd like to give thanks and attribute that most of my undersanding / solutions h
     * [Part 3 Getting Started with KA9Q radio](https://www.youtube.com/watch?v=E76865qcZUo) 
     * [Part 4 Getting Started with ka9q radio - Wideband Spectral display](https://www.youtube.com/watch?v=K5ml2SuGNSs) 
     * [Getting Started with KA9Q radio Part 5 Headless Linux Server](https://www.youtube.com/watch?v=JunXLtOhbgA) 
-* [KA9Q-Radio GitHub]https://github.com/ka9q/ka9q-radio()
+* [KA9Q-Radio GitHub](https://github.com/ka9q/ka9q-radio)
     * [Installing ka9q-radio](https://github.com/ka9q/ka9q-radio/blob/main/docs/INSTALL.md) 
     * [Configuring and Running ka9q-radio - Part 1](https://github.com/ka9q/ka9q-radio/blob/main/docs/ka9q-radio.md) 
     * [Configuring and Running ka9q-radio - Part 2](https://github.com/ka9q/ka9q-radio/blob/main/docs/ka9q-radio-2.md) 
@@ -44,9 +44,11 @@ I've successfully configured the following devices:
 
     I've also set it up similar to 'WebSDR.org' with small sections / bands available to monitor using PhantomSDR and/or SDR++. For most other common voice channels / frequencies (ie HF Marine, AIR etc) they are being monitored using ka9q-radio's monitor utility.
 
-* RTLSDR Dongles - I've currently have then monitoring the 156-158 and 160-162 regions of the VHF Marine band. Because these are channelised its been a breeze to set up and monitor the channels I want using ka9q-radio's 'monitor' utility.  
+* RTLSDR Dongles 
+    I've currently have then monitoring the 156-158 and 160-162 regions of the VHF Marine band. Because these are channelised its been a breeze to set up and monitor the channels I want using ka9q-radio's 'monitor' utility.  
 
-    Before following my notes below checkout my repo:
+
+Before following my notes please checkout my repo (nb. most of the commands assume that its checked out under '~/tools'. Please feel free to change this to your liking but just know most of the commands / path do reference ~/tools):
 
 ```
 
