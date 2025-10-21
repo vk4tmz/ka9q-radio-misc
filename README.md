@@ -66,11 +66,18 @@ I've successfully previous set this device this up using:
 
 * [SoapySDR](https://github.com/pothosware/SoapySDR) & [ExtIO_SDDC](https://github.com/ik1xpv/ExtIO_sddc):
     * [OpenwebRX+](https://github.com/luarvique/openwebrx)
-    * PhantomSDR
-    * SDR++
-    * CubicSDR
+    * [SDR++](https://github.com/AlexandreRouma/SDRPlusPlus)
+    * [CubicSDR](https://github.com/cjcliffe/CubicSDR)
+
+* [RX888_Stream](https://github.com/rhgndf/rx888_stream)
+
+Should be noted that I had more stability (ie starting up) RX888_Stream using the old code located under [old-buggy-c-code](https://github.com/rhgndf/rx888_stream/tree/old-buggy-c-code) branch. I'm sure it was originally mostly working, with the rust code version but then just would not initialise / connect to the rx888 device.
+
+    * [PhantomSDR](https://github.com/PhantomSDR/PhantomSDR/wiki/Configuration-RX888)
+
 
 But now with KA9Q-radio the features and power it gives the RX888 is fantastic!
+
 
 ### Starting 'radiod' 
 
@@ -78,6 +85,9 @@ But now with KA9Q-radio the features and power it gives the RX888 is fantastic!
     * Voice Group Channels:
         * Marine (Distress, Working and Navigational Warnings etc)
         * Air Traffic Control & Volmet
+    * Digitial Mode Channels
+        * WSPR, FT8, FT4, JS8Call, HFDL, GMDSS DSC
+        * More to come.
 
 ```
 radiod ~/tools/ka9q-radio-misc/ka9q-radio-cfg/
