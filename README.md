@@ -27,6 +27,9 @@ I'd like to give thanks and attribute that most of my undersanding / solutions h
     * [Using "KA9Q-Radio" with the RTL-SDR dongle](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rtlsdr.html) 
     * [Using "KA9Q-Radio" with the RX-888](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rx888.html) 
     * [https://www.sdrutah.org/info/ka9q_radio_command_overview.html](https://www.sdrutah.org/info/ka9q_radio_command_overview.html)
+    * [iUsing Configuration files in KA9Q-Radio](https://www.sdrutah.org/info/ka9q_radio_config_files.html)
+    * [Using "KA9Q-Radio" as a multi-band front end for the PA3FWM WebSDR](https://www.sdrutah.org/info/using_ka9q_radio_with_websdr.html)
+    * [High radio audio sources for the PA3FWM WebSDR using FIFO sources from the RX-888.](https://www.sdrutah.org/info/high_rate_websdr_audio_using_fifo.html)
 * Setting up Digital Mode Decoding
     * [WSPR Daemon](https://wsprdaemon.readthedocs.io/en/master/configuration/radiod%40.conf/hardware.html)
     * [FT8]() 
