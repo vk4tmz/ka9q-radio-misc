@@ -109,6 +109,31 @@ ka9q-web -m hf.local -p 8081 -n "VK4TMZ - QG62LQ - 40m EFHW ~7m (HAAT)"
 
 Access your instance of [KA9Q-Radion WebSDR](http://localhost:8081)
 
+### Monitoring Channelized Frequencies Using KA9Q-Radio 'Monitor' 
+
+Some of these can have a large set of frequencies so up to you to mute/unmute channels as desired.
+
+**Notes:**
+
+* Be quick to press "M" to mute all channels on busy sets.  Then "u"nmute / "m"ute channel(s) as needed.
+* Its awesome how the develops have use "pan" to shift the channel between Far Left / Centre and Far Right ear!!!
+
+```
+monitor air-antarctica-pcm.local
+monitor air-aus-dom-pcm.local
+monitor air-aus-ino-1-pcm.local
+monitor air-aus-sea-3-pcm.local
+monitor air-aus-sp-6-pcm.local
+monitor mw-pcm.local
+monitor volmet-pcm.local
+monitor volmet-apac-pcm.local
+monitor marine-distress-pcm.local
+monitor marine-weather-vmc-pcm.local
+monitor marine-weather-vmw-pcm.local
+monitor wspr-pcm.local
+monitor wwv-pcm.local
+```
+
 ## RTLSDR Dongles
 
 
