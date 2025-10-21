@@ -1,0 +1,80 @@
+# Misc Config / Scripts files used with KA9Q-Radio
+
+## Overview 
+
+If you have arrived here, then good odds its 'Ka9q-Radio' related.
+
+This repository holds some of my notes and experience I've had while setting up Ka9q-radio and interacting with it via command line tools as well as GUI.  These notes will not go into details about building / installing 'ka9q-radio' as there is plently of documentation on thier own github as well as countless others.  
+
+I'd like to give thanks and attribute that most of my undersanding / solutions here were based on the following documentation / information soruces:
+
+- [Getting Started with KA9Q Radio Videos by Tom McDermott](https://www.youtube.com/@n5eg) 
+-- [Tom's Git Hub Repo]() 
+-- [Getting Started with ka9q radio part 1](https://www.youtube.com/watch?v=3UPhhbkz0Tw) 
+-- [Episode 2 getting started with ka9q radio](https://www.youtube.com/watch?v=iPVvCNn0mBE) 
+-- [Part 3 Getting Started with KA9Q radio](https://www.youtube.com/watch?v=E76865qcZUo) 
+-- [Part 4 Getting Started with ka9q radio - Wideband Spectral display](https://www.youtube.com/watch?v=K5ml2SuGNSs) 
+-- [Getting Started with KA9Q radio Part 5 Headless Linux Server](https://www.youtube.com/watch?v=JunXLtOhbgA) 
+- [KA9Q-Radio GitHub]https://github.com/ka9q/ka9q-radio()
+-- [Installing ka9q-radio](https://github.com/ka9q/ka9q-radio/blob/main/docs/INSTALL.md) 
+-- [Configuring and Running ka9q-radio - Part 1](https://github.com/ka9q/ka9q-radio/blob/main/docs/ka9q-radio.md) 
+-- [Configuring and Running ka9q-radio - Part 2](https://github.com/ka9q/ka9q-radio/blob/main/docs/ka9q-radio-2.md) 
+-- [Configuring and Running ka9q-radio - Part 3](https://github.com/ka9q/ka9q-radio/blob/main/docs/ka9q-radio-3.md) 
+-- [RTL-SDR](https://github.com/ka9q/ka9q-radio/blob/main/docs/SDR/rtlsdr.md) 
+-- [RX-888 MkII](https://github.com/ka9q/ka9q-radio/blob/main/docs/SDR/rx888.md) 
+- [Northern Utah WebSDR](https://sdrutah.org) by [kd7efg](https://www.qrz.com/db/KD7EFG)
+-- [Using "KA9Q-Radio"](https://www.sdrutah.org/info/using_ka9q_radio.html) 
+-- [Using "KA9Q-Radio" with the RTL-SDR dongle](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rtlsdr.html) 
+-- [Using "KA9Q-Radio" with the RX-888](https://www.sdrutah.org/info/using_ka9q_radio_with_the_rx888.html) 
+- Setting up Digital Mode Decoding
+-- [WSPR Daemon](https://wsprdaemon.readthedocs.io/en/master/configuration/radiod%40.conf/hardware.html)
+-- [FT8]() 
+-- [FT4]() 
+-- [JS8Call]() 
+-- [HFDL]() 
+- Misc Links: 
+-- [Phil Karn, KA9Q December 2023 KA9Q-Radio Update & Demo](https://groups.io/g/NextGenSDRs/attachment/1752/0/TAPR-Mini-DCC-2023-Phil-Karn-KA9Q.pdf) 
+-- []() 
+
+I've successfully configured the following devices:
+
+- RX888 mk2 - Successfully set up monitoring must of the known digits signals across the HF band (WSPR, FT8, FT4, JSCall, JT9, JT65, HFDL, DSC and many more). I've also set it up similar to 'WebSDR.org' with small sections / bands available to monitor using PhantomSDR and/or SDR++. For most other common voice channels / frequencies (ie HF Marine, AIR etc) they are being monitored using ka9q-radio's monitor utility.
+- RTLSDR Dongles - I've currently have then monitoring the 156-158 and 160-162 regions of the VHF Marine band. Because these are channelised its been a breeze to set up and monitor the channels I want using ka9q-radio's 'monitor' utility.  
+
+Before following my notes below checkout my repo:
+
+```
+
+mdkir ~/tools
+cd ~/tools
+git clone git@github.com:vk4tmz/ka9q-radio-misc.git
+cd ka9q-radio-misc
+```
+
+NB: Please note that the following instructions are examples only you will need to take further steps if you will to run as services etc.
+
+## RX888-mk2 SDR Setup 
+
+I've successfully previous set this device this up using:
+- [SoapySDR](https://github.com/pothosware/SoapySDR) & [ExtIO_SDDC](https://github.com/ik1xpv/ExtIO_sddc):
+-- [OpenwebRX+](https://github.com/luarvique/openwebrx)
+-- PhantomSDR
+-- SDR++
+-- CubicSDR
+
+But now with ka9q-radio the features and power it gives the RX888 is fantastic!
+
+### Starting 'radiod' 
+
+- My RX888 config file contain a lot of sections consisting of (but not limited to):
+-- Voice Group Channels:
+--- Marine (Distress, Working and Navigational Warnings etc)
+--- Air Traffic Control & Volmet
+
+```
+radiod ~/tools/ka9q-radio-misc/ka9q-radio-cfg/
+```
+
+## RTLSDR Dongles
+
+
