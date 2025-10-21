@@ -158,6 +158,7 @@ sudo make install && sudo ldconfig
 MCAST=ft8-pcm.local
 DIRECTORY=/var/lib/ka9q-radio/ft8
 ```
+
     * **/etc/radio/ft4-decode.conf**
 
 ```
@@ -165,7 +166,7 @@ MCAST=ft4-pcm.local
 DIRECTORY=/var/lib/ka9q-radio/ft4
 ```
 
-* Install and Running Services
+* Install and run recording & decoding services
 
 ```
 sudo systemctl enable ft8-record ft4-record ft8-decode@1 ft4-decode@1
@@ -176,7 +177,7 @@ sudo systemctl stop ft8-record ft4-record ft8-decode@1 ft4-decode@1
 sudo systemctl disable ft8-record ft4-record ft8-decode@1 ft4-decode@1
 ```
 
-* Starting More Decoders (only if needing to process large backlog)
+* Starting more decoders (only if needing to process large backlog)
 
 Note that there's just one ft4-record and one ft8-record job so they do not take a @n suffix. The ft4-decode@ and ft8-decode@ jobs do require suffixes even if you only want one of each. If you want more, just add them like this:
 
@@ -187,12 +188,12 @@ sudo start ft8-decode@2 ft8-decode@3 ...
 
 though this really shouldn't be necessary unless a large backlog has built in a spool directory because ft8-record kept running when all ft8-decode@ jobs were stopped.
 
-* Checking on the Service Status 
+* Checking on the service status 
 
 systemctl status ft8-record	'ft8-decode@*' ft4-record	'ft4-decode@*'
 
 
-* Reviewing Service Logs
+* Review the service logs
 
 ```
 journalctl -u 'ft8-decode@*'
@@ -206,15 +207,16 @@ grep ft4-record /var/log/syslog
 
 #### Monitoring FT8/FT9 Decode logs
 
+```
 tail -f /var/log/ft8.log
 tail -f /var/log/ft4.log
-
+```
 
 ## KA9Q PSKReporter by Phil Glagstone
 
 There is one instance of pskreporter for each mode, i.e., pskreporter@ft8, pskreporter@ft4 or pskreporter@wspr. 
 
-* Chekckout the repo
+* Checkout the project repo
 
 ```
 cd ~/tools
@@ -222,7 +224,7 @@ git clone https://www.github.com/pjsg/ftlib-pskreporter
 cd ftlib-pskreporter
 ```
 
-* Deploy Python tools
+* Deploy the required python packages and project script for sending the reports
 
 ```
 sudo apt install python3-pip
@@ -231,9 +233,9 @@ sudo apt install python3-docopt
 sudo python setup.py install
 ```
 
-* Modify and add your callsign, locator and antenna to the ft*-pskreporter.conf files
+* Modify and add your callsign, locator and antenna details to the *-pskreporter.conf files
 
-* Copy Config and Service files to system location
+* Copy the config and service template files to system location
 
 ```
 sudo cp ft*conf /etc/radio
@@ -243,14 +245,14 @@ sudo cp pskreporter@.service /etc/systemd/system/
 sudo cp pskreporter /usr/local/bin/
 ```
 
-* Enable Services
+* Enable the recording and decoding services
 
 ```
 sudo systemctl enable pskreporter@ft4 pskreporter@ft8 pskreporter@wspr
 sudo systemctl start pskreporter@ft4 pskreporter@ft8 pskreporter@wspr
 ```
 
-* Review Service logs
+* Review the service logs
 
 ```
 journalctl -u 'pskreporter@*'
