@@ -4,7 +4,7 @@
 
 If you have arrived here, then its good odds that it's 'KA9Q-Radio' related.
 
-This repository holds some of my notes and experiences I've had while setting up KA9Q-radio and interacting with it via command line tools as well as GUI applications.  These notes will not go into details about building / installing 'ka9q-radio' as there is plently of documentation on thier own github as well as countless others.  
+This repository holds some of my notes and experiences I've had while setting up KA9Q-radio and interacting with it via command line tools as well as GUI applications.  These notes will not go into details about building / installing 'KA9Q-radio' as there is plently of documentation on thier own github as well as countless others.  
 
 I'd like to give thanks and attribute that most of my undersanding / solutions here were based on the following documentation / information sources:
 
@@ -42,10 +42,10 @@ I've successfully configured the following devices:
 
     Successfully set up monitoring must of the known digits signals across the HF band (WSPR, FT8, FT4, JSCall, JT9, JT65, HFDL, DSC and many more). 
 
-    I've also set it up similar to 'WebSDR.org' with small sections / bands available to monitor using PhantomSDR and/or SDR++. For most other common voice channels / frequencies (ie HF Marine, AIR etc) they are being monitored using ka9q-radio's monitor utility.
+    I've also set it up similar to 'WebSDR.org' with small sections / bands available to monitor using PhantomSDR and/or SDR++. For most other common voice channels / frequencies (ie HF Marine, AIR etc) they are being monitored using KA9Q-radio's monitor utility.
 
 * RTLSDR Dongles 
-    I've currently have then monitoring the 156-158 and 160-162 regions of the VHF Marine band. Because these are channelised its been a breeze to set up and monitor the channels I want using ka9q-radio's 'monitor' utility.  
+    I've currently have then monitoring the 156-158 and 160-162 regions of the VHF Marine band. Because these are channelised its been a breeze to set up and monitor the channels I want using KA9Q-radio's 'monitor' utility.  
 
 
 Before following my notes please checkout my repo (nb. most of the commands assume that its checked out under '~/tools'. Please feel free to change this to your liking but just know most of the commands / path do reference ~/tools):
@@ -65,12 +65,12 @@ NB: Please note that the following instructions are examples only you will need 
 I've successfully previous set this device this up using:
 
 * [SoapySDR](https://github.com/pothosware/SoapySDR) & [ExtIO_SDDC](https://github.com/ik1xpv/ExtIO_sddc):
-*- [OpenwebRX+](https://github.com/luarvique/openwebrx)
-*- PhantomSDR
-*- SDR++
-*- CubicSDR
+    * [OpenwebRX+](https://github.com/luarvique/openwebrx)
+    * PhantomSDR
+    * SDR++
+    * CubicSDR
 
-But now with ka9q-radio the features and power it gives the RX888 is fantastic!
+But now with KA9Q-radio the features and power it gives the RX888 is fantastic!
 
 ### Starting 'radiod' 
 
