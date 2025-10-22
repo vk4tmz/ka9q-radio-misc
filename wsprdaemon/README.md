@@ -8,11 +8,47 @@ These are my notes and thought on how I setup WSPRDaemon with 'KA9Q-Radio'.
 
 * WSPRDaemon
   * [GitHub](https://github.com/rrobinett/wsprdaemon)
+  * [WSDRDaemon Documentation](https://wsprdaemon.readthedocs.io/en/latest/)
   * [Command Reference](https://wsprdaemon.readthedocs.io/en/master/appendices/command_reference.html) 
   * [WSPRDaemon Groups.io](https://groups.io/g/wsprdaemon/topics?sidebar=true)
   
+## Installing WSPRDaemon 
 
-## WSPRDameon External KA9Q-Radio Patch
+### Pre-Setup
+
+* Setup WD user and group permissions.
+
+```
+sudo adduser wsprdaemon
+
+sudo usermod -a -G sudo wsprdaemon
+sudo usermod -a -G plugdev wsprdaemon
+
+sudo usermod -a -G radio wsprdaemon
+```
+
+* Install Dependencies
+
+```
+sudo apt install -y btop nmap git tmux vim net-tools iputils-ping avahi-daemon libnss-mdns mdns-scan avahi-utils avahi-discover build-essential make cmake gcc libairspy-dev libairspyhf-dev libavahi-client-dev libbsd-dev libfftw3-dev libhackrf-dev libiniparser-dev libncurses5-dev libopus-dev librtlsdr-dev libusb-1.0-0-dev libusb-dev portaudio19-dev libasound2-dev uuid-dev rsync sox libsox-fmt-all opus-tools flac tcpdump wireshark libhdf5-dev libsamplerate-dev
+```
+
+* Installing WSPR Daemon (**NB: to be completed under the wsprdaemon user and under the users home directory**) 
+
+```
+cd ~
+git clone https://github.com/rrobinett/wsprdaemon.git
+cd wsprdaemon
+```
+
+* Initial Source of WSPRDaemon Aliases and Commands
+
+```
+source bash-aliases ../.bash_aliases
+```
+
+
+### WSPRDameon External KA9Q-Radio Patch
 
 I had to slightly modify the following files to enable me to start WSPRDaemon and have it work as expected with external instance of KA9Q-Radio:
 
