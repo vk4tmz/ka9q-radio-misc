@@ -29,7 +29,7 @@ I had to slightly modify the following files to enable me to start WSPRDaemon an
 * [ka9q-utils.sh](https://github.com/rrobinett/wsprdaemon/blob/master/ka9q-utils.sh)
 * [recording.sh](https://github.com/rrobinett/wsprdaemon/blob/master/recording.sh)
 
-To apply the patch:
+To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/wsprdaemon_ka9q-radio-external.patch):
 
 ```
 cd ~/wsprdaemon
@@ -46,6 +46,9 @@ I have 2 examples of WSPRDaemon config:
     It only has the WSPR W2 mode decoding enabled, and excludes the WWV-IQ and the WSPR (F2 and F5) modes. 
 
     On the RasPI4 you can see at the end of the 2min cycle the CPU goes to 100% for the first minute and on the dot comes back down to ~10-15% CPU for last minute of cycle (this is mostly recording and you do see the FT8/FT4 decoders blipping every 15sec). This seems to work fine and successfully get good levels of decodes for WSPR, FT8 and FT4. **NOTE: There is a config item 'WSPRD_CMD_FLAGS' that allows you to reduce the DEPTH from the default 4 levels to some something lower.**
+
+    ![Image showing the CPU Load on RasPI4](20251023_0740_RasPI4_WSPRDaemon_FT8_FT4_CpuLoad.png)
+
 * [wsprdaemon_full.conf](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/conf/wsprdaemon_full.conf) - Full version used when testing on more powerful host.
 
-** TODO PUT IMAGE OF RasPI4 CPU Load **
+
