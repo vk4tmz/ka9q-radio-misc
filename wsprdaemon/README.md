@@ -6,7 +6,7 @@ These are my notes and thought on how I setup WSPRDaemon with 'KA9Q-Radio'.
 
 ### Useful Links
 
-* WSPRDaeon
+* WSPRDaemon
   * [GitHub](https://github.com/rrobinett/wsprdaemon)
   * [Command Reference](https://wsprdaemon.readthedocs.io/en/master/appendices/command_reference.html) 
   * [WSPRDaemon Groups.io](https://groups.io/g/wsprdaemon/topics?sidebar=true)
