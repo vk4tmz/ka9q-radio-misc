@@ -1,8 +1,32 @@
 # Notes on setting up WSPRDaemon used with KA9Q-Radio                                                                                                                                                            
                                                                                                                                                                                                               
-## Overview                                                                                                                                                                                                   
-                                                                                                                                                                                                              
+## Overview
+
 These are my notes and thought on how I setup WSPRDaemon with 'KA9Q-Radio'.
+
+### Useful Links
+
+* WSPRDaeon
+  * [GitHub](https://github.com/rrobinett/wsprdaemon)
+  * [Command Reference](https://wsprdaemon.readthedocs.io/en/master/appendices/command_reference.html) 
+  * [WSPRDaemon Groups.io](https://groups.io/g/wsprdaemon/topics?sidebar=true)
+  
+
+## WSPRDameon External KA9Q-Radio Patch
+
+I had to slightly modify the following files to enable me to start WSPRDaemon and have it work as expected with external instance of KA9Q-Radio:
+
+* [ka9q-utils.sh](https://github.com/rrobinett/wsprdaemon/blob/master/ka9q-utils.sh)
+* [recording.sh](https://github.com/rrobinett/wsprdaemon/blob/master/recording.sh)
+
+To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/wsprdaemon_ka9q-radio-external.patch):
+
+```
+cd ~/wsprdaemon
+git apply ~/tools/ka9q-radio-misc/wsprdaemon/wsprdaemon_ka9q-radio-external.patch
+```
+
+## WSPRDaemon Config
 
 The first thing that I'd like to point out was while there appeared to be lots of documentation it did seem stale / incomplete. 
 The obvious example of this was the lack of clearly explaining how to configure WSPRDaemon to work KA9Q-Radio and especially  with an 'external' (ie independent) instance of KA9Q-Radio.  
@@ -22,21 +46,8 @@ PCMRECORD_ENABLED="yes"
 
 For more information you can review the FULL version of the WSPRDaemon config file:  "[wd_template_full.conf](https://github.com/rrobinett/wsprdaemon/blob/master/wd_template_full.conf)".  But its full 100% complete as you see from the PCMRECORD options.
 
-## WSPRDameon External KA9Q-Radio Patch
 
-I had to slightly modify the following files to enable me to start WSPRDaemon and have it work as expected with external instance of KA9Q-Radio:
-
-* [ka9q-utils.sh](https://github.com/rrobinett/wsprdaemon/blob/master/ka9q-utils.sh)
-* [recording.sh](https://github.com/rrobinett/wsprdaemon/blob/master/recording.sh)
-
-To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/wsprdaemon_ka9q-radio-external.patch):
-
-```
-cd ~/wsprdaemon
-git apply ~/tools/ka9q-radio-misc/wsprdaemon/wsprdaemon_ka9q-radio-external.patch
-```
-
-## Config Examples
+### Config Examples
 
 I have 2 examples of WSPRDaemon config:
 
