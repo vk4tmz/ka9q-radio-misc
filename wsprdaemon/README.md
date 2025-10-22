@@ -46,7 +46,15 @@ cd wsprdaemon
 ```
 source bash-aliases ../.bash_aliases
 ```
+### Grab My KA9Q-Radio-Misc Repo
 
+```
+mkdir ~/tools
+cd ~/tools
+
+git clone git@github.com:vk4tmz/ka9q-radio-misc.git
+cd ka9q-radio-misc
+```
 
 ### WSPRDameon External KA9Q-Radio Patch
 
@@ -60,7 +68,12 @@ To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4
 ```
 cd ~/wsprdaemon
 git apply ~/tools/ka9q-radio-misc/wsprdaemon/wsprdaemon_ka9q-radio-external.patch
+
+# Confimr 2 files modified 
+git status
+
 ```
+
 
 ## WSPRDaemon Config
 
