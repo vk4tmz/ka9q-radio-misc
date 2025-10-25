@@ -1,5 +1,5 @@
 diff --git a/ka9q-utils.sh b/ka9q-utils.sh
-index 11f5d0d..bd18f97 100755
+index 17266b7..2913cd5 100755
 --- a/ka9q-utils.sh
 +++ b/ka9q-utils.sh
 @@ -758,6 +758,12 @@ declare ka9q_service_daemons_list=(
@@ -15,17 +15,3 @@ index 11f5d0d..bd18f97 100755
      wd_logger 1 "Starting"
  
      while true; do
-diff --git a/recording.sh b/recording.sh
-index 6f2451a..1fc9ba9 100755
---- a/recording.sh
-+++ b/recording.sh
-@@ -358,7 +358,8 @@ function ka9q_recording_daemon()
-              wd_logger 1 "Running Scott's pcmrecord"
-              find-pcmrecord      ### This will exit if it can define KA9Q_RADIO_PCMRECORD_CMD
-              pcm_record_cmd="${KA9Q_RADIO_PCMRECORD_CMD}"
--             pcm_record_cmd_args="-W -q pcmrecord-errors.log -L 60"
-+             #pcm_record_cmd_args="-W -q pcmrecord-errors.log -L 60"
-+             pcm_record_cmd_args="-L 60"
-         fi
-         wd_logger 1 "Start recording wav files from ${receiver_ip} ${receiver_band} using ${pcm_record_cmd}"
-         local running_jobs_pid_list=()
