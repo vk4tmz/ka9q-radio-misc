@@ -114,11 +114,12 @@ I have 2 examples of WSPRDaemon config:
 * [wsprdaemon_full.conf](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/conf/wsprdaemon_full.conf) - Full version used when testing on more powerful host.
 
 
-### 'pcmrecord' Utility
+## 'pcmrecord' Utility
 
-* KA9Q-Radion (ie Phi's) version of the '**pcmrecord**' utility seems to some what work with WD, however I did encounter issues:
-    * **Issue 1:** Where the timestamp used in the filename could see the 'seconds' value shift +/- from 00 and this would cause the files to be ignored and eventually purged.  There was a config option that was suggested in the logs to use '**ADJUST_FILENAME_TO_NEAREST_SECOND_ZERO="yes"**' but even with this option this issue would come and go so you'd get periods of no decodes.
-    * **Issue 2:** There is logic in this version that after it correctly 'waits' for the starting ''**.wav.tmp**' file to close event, it was spin and sleep for 1 second and check for the next minute wav file. With the number of WSPR decoders running this is actually a fair bit of CPU wastage and should wait for 'close' event like it does for the tmp file.  Actually WD version of 'pcmrecord' does do this.
+* KA9Q-Radio (ie Phi's) version of the '**pcmrecord**' utility seems to some what work with WD, however I did encounter issues:
+    * **Issue 1:** The timestamp used in the filename could see the 'seconds' value shift +/- from 00 and this would eventually cause the files to be ignored and purged ergo no decodes.  There was a config option that was suggested in the logs to use '**ADJUST_FILENAME_TO_NEAREST_SECOND_ZERO="yes"**' but even with this option this issue would come and go so you'd get periods of no decodes.
+      
+    * **Issue 2:** There is logic in this version correctly 'waits' for the starting ''**.wav.tmp**' file to close event and does so not wasting CPU time. Once it encounters the starting 60sec file, the logic then spins and sleeps for 1 second, waking to check for the next minute wav file is available. With the number of WSPR decoders running this is actually a fair bit of CPU wastage and should wait for 'close' event like it does for the tmp file.  Actually the WD version of 'pcmrecord' corectly does do this similar to how it waits for the 1st 60sec tmp file.
 
 * WD (ie Scott's) version of '**pcmrecord.c**', adds several "wd_xxx" parameters.  These parameters seem to be an improvement on sync'ing the audio data based of the "RTP" protocol timestamp. However it frustrating had it's own issues:
     * **Issue 1:** Most of the time it seemed NOT to be working / decoding. After viewing the logs I finally tracked down issues under the '**/dev/shm/wsprdaemon/recording.d/KA9Q_0_WSPR/pcmrecord-errors.log**'
