@@ -230,7 +230,7 @@ cd ftlib-pskreporter
 sudo apt install python3-pip
 sudo apt install python3-docopt
 
-sudo python setup.py install
+sudo python3 setup.py install
 ```
 
 * Modify and add your callsign, locator and antenna details to the *-pskreporter.conf files
@@ -242,7 +242,7 @@ sudo cp ft*conf /etc/radio
 sudo cp wspr*conf /etc/radio
 sudo cp pskreporter@.service /etc/systemd/system/
 
-sudo cp pskreporter /usr/local/bin/
+sudo cp pskreporter-sender /usr/local/bin/
 ```
 
 * Enable the recording and decoding services
