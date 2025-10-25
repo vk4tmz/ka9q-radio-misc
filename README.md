@@ -205,14 +205,14 @@ journalctl -u 'ft4-decode@*'
 grep ft4-record /var/log/syslog
 ```
 
-#### Monitoring FT8/FT9 Decode logs
+* Monitoring FT8/FT9 Decode logs
 
 ```
 tail -f /var/log/ft8.log
 tail -f /var/log/ft4.log
 ```
 
-## KA9Q PSKReporter by Phil Glagstone
+#### KA9Q PSKReporter by Phil Glagstone
 
 There is one instance of pskreporter for each mode, i.e., pskreporter@ft8, pskreporter@ft4 or pskreporter@wspr. 
 
@@ -257,6 +257,10 @@ sudo systemctl start pskreporter@ft4 pskreporter@ft8 pskreporter@wspr
 ```
 journalctl -u 'pskreporter@*'
 ```
+
+#### WSPRDaemon
+
+* [Notes on setting up WSPRDaemon used with KA9Q-Radio](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/README.md)
 
 
 ## RTLSDR Dongles
