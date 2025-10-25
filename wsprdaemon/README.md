@@ -60,10 +60,9 @@ cd ka9q-radio-misc
 
 ### WSPRDameon External KA9Q-Radio Patch
 
-I had to slightly modify the following files to enable me to start WSPRDaemon and have it work as expected with external instance of KA9Q-Radio:
+I had to slightly modify the following file(s) to enable me to start WSPRDaemon and have it work as expected with external instance of KA9Q-Radio:
 
 * [ka9q-utils.sh](https://github.com/rrobinett/wsprdaemon/blob/master/ka9q-utils.sh)
-* [recording.sh](https://github.com/rrobinett/wsprdaemon/blob/master/recording.sh)
 
 To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4tmz/ka9q-radio-misc/blob/main/wsprdaemon/wsprdaemon_ka9q-radio-external.patch):
 
@@ -71,7 +70,7 @@ To apply the patch [wsprdaemon_ka9q-radio-external.patch](https://github.com/vk4
 cd ~/wsprdaemon
 git apply ~/tools/ka9q-radio-misc/wsprdaemon/wsprdaemon_ka9q-radio-external.patch
 
-# Confimr 2 files modified 
+# Confirm expected number of files modified:
 git status
 
 ```
