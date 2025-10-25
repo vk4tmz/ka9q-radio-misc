@@ -123,13 +123,13 @@ I have 2 examples of WSPRDaemon config:
 
 * WD (ie Scott's) version of '**pcmrecord.c**', adds several "wd_xxx" parameters.  These parameters seem to be an improvement on sync'ing the audio data based of the "RTP" protocol timestamp. However it frustrating had it's own issues:
     * **Issue 1:** Most of the time it seemed NOT to be working / decoding. After viewing the logs I finally tracked down issues under the '**/dev/shm/wsprdaemon/recording.d/KA9Q_0_WSPR/pcmrecord-errors.log**'
-```
-Sat 25 Oct 2025 10:13:00.413 UTC: Weird rtp.timestamp: expected 149415960, received 149416200 (delta 240) on SSRC 28125 (tx 0, rx 13760, drops 0)
-Sat 25 Oct 2025 10:13:00.476 UTC: Weird rtp.seq: expected 39296, received 39304 (delta 8) on SSRC 13554 (tx 0, rx 13760, drops 0)
-Sat 25 Oct 2025 10:13:00.476 UTC: Weird rtp.timestamp: expected 149414400, received 149416800 (delta 2400) on SSRC 13554 (tx 0, rx 13760, drops 0)
-Sat 25 Oct 2025 10:13:00.484 UTC: Weird rtp.seq: expected 39302, received 39304 (delta 2) on SSRC 5365 (tx 0, rx 13760, drops 0)
-Sat 25 Oct 2025 10:13:00.484 UTC: Weird rtp.timestamp: expected 149416200, received 149416800 (delta 600) on SSRC 5365 (tx 0, rx 13760, drops 0)
-```
-        **IMPORTANT NOTE** 
-            * Frustrating this was occurring only when trying to run the WD on RasPI4 and the KA9Q-Radio instance on another host!  **TBD** - will continue to investigate what is going on. Do I have a networking/config issue ? is there a bug in the KA9Q-Radio 'multicasting' code ???.  
-            * It also appears when using '**monitor**' utility from RasPI I can see the status showing that the streams work then reset constantly..... hmmmmm
+      ```
+      Sat 25 Oct 2025 10:13:00.413 UTC: Weird rtp.timestamp: expected 149415960, received 149416200 (delta 240) on SSRC 28125 (tx 0, rx 13760, drops 0)
+      Sat 25 Oct 2025 10:13:00.476 UTC: Weird rtp.seq: expected 39296, received 39304 (delta 8) on SSRC 13554 (tx 0, rx 13760, drops 0)
+      Sat 25 Oct 2025 10:13:00.476 UTC: Weird rtp.timestamp: expected 149414400, received 149416800 (delta 2400) on SSRC 13554 (tx 0, rx 13760, drops 0)
+      Sat 25 Oct 2025 10:13:00.484 UTC: Weird rtp.seq: expected 39302, received 39304 (delta 2) on SSRC 5365 (tx 0, rx 13760, drops 0)
+      Sat 25 Oct 2025 10:13:00.484 UTC: Weird rtp.timestamp: expected 149416200, received 149416800 (delta 600) on SSRC 5365 (tx 0, rx 13760, drops 0)
+      ```
+      **IMPORTANT NOTE** 
+      * Frustrating this was occurring only when trying to run the WD on RasPI4 and the KA9Q-Radio instance on another host!  **TBD** - will continue to investigate what is going on. Do I have a networking/config issue ? is there a bug in the KA9Q-Radio 'multicasting' code ???.  
+      * It also appears when using '**monitor**' utility from RasPI I can see the status showing that the streams work then reset constantly..... hmmmmm
