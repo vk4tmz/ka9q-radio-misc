@@ -7,9 +7,192 @@ from datetime import datetime
 from js8py import Js8
 from js8py.frames import Js8FrameHeartbeat, Js8FrameCompound
 
+RADIO_MODE_LIST = ["usb", "lsb"]
 
-decoderRegex = re.compile(" ?<Decode(Started|Debug|Finished)>")
+class Js8Parser:
 
+    freq_khz: int
+    freq_hz: int
+    radio_mode: str
+    record_time: datetime
+
+    decoderRegex = re.compile(" ?<Decode(Started|Debug|Finished)>")
+
+    def __init__(self, freq_khz=None, radio_mode=None, record_time=None):
+        self.set_freq_khz(freq_khz)
+        self.set_radio_mode(radio_mode)
+        self.set_record_time(record_time)
+
+    def set_freq_hz(self, freq_hz:int):
+        self.freq_hz = freq_hz
+        self.freq_khz = freq_hz / 1000 if freq_hz else None            
+
+    def set_freq_khz(self, freq_khz:int):
+        self.freq_khz = freq_khz
+        self.freq_hz = freq_khz * 1000 if freq_khz else None            
+
+    def set_radio_mode(self, radio_mode:str):
+        if (radio_mode and radio_mode not in RADIO_MODE_LIST):
+            raise ValueError(f"Invalid radio mode: [{radio_mode}]. Valid values are: [{RADIO_MODE_LIST}].")
+
+        self.radio_mode = radio_mode
+
+    def set_record_time(self, record_time:datetime):
+        self.record_time = record_time
+
+    #######################################################################
+
+    def parse(self, raw_msg):
+        try:
+            msg = raw_msg.rstrip()
+            if self.decoderRegex.match(msg):
+                return None
+            if msg.startswith(" EOF on input file"):
+                return None
+
+            if (self.freq_khz is None):
+                raise ValueError("freq_khz has not been set.")
+            
+            if (self.record_time is None):
+                raise ValueError("record_time has not been set.")
+
+            frame = Js8().parse_message(msg)
+
+            #print("-----------------------------------------------------------------")
+            #print(dir(frame))
+
+            is_spot = False
+            if ((isinstance(frame, Js8FrameHeartbeat) or isinstance(frame, Js8FrameCompound)) and frame.grid):
+                is_spot = True
+
+            timestamp = int(self.record_time.timestamp())
+
+            out = {
+                #"timestamp": frame.timestamp,
+                "timestamp": timestamp,
+                "mode": "JS8",
+                "dial_freq": self.freq_hz,
+                "offset": frame.freq,
+                "freq": self.freq_hz + frame.freq,
+                "thread_type": frame.thread_type,
+                "js8mode": frame.mode,
+                "callsign": None,
+                "locator": None,
+                "callsign_to": None,
+                "msg": str(frame),
+                "db": frame.db,
+                "dt": frame.dt,
+                "spot": is_spot,
+                "cmd": None,
+                "snr": None,
+                "frame_class": frame.__class__.__name__,
+                "raw_msg": raw_msg,
+            }
+
+
+            if (hasattr(frame, 'callsign')):
+                out["callsign"] = frame.callsign
+
+            if (hasattr(frame, 'callsign_from')):
+                out["callsign"] = frame.callsign_from
+                
+            if (hasattr(frame, 'callsign_to')):
+                out["callsign_to"] = frame.callsign_to
+                
+            if (hasattr(frame, 'grid')):
+                out["locator"] = frame.grid
+                
+            if (hasattr(frame, 'cmd')):
+                out["cmd"] = frame.cmd
+                
+            if (hasattr(frame, 'snr')):
+                out["snr"] = frame.snr
+                
+            return out
+
+        except Exception as e:
+            print(f"ERROR: error while parsing js8 message: [{msg}]. {e}")
+
+
+    # Determines if the first part of the firstname confirms to "--jt" option used by recording utlising (ie pcmrecord).
+    def processJTFilename(self, fn:str):
+       
+        # Expected JT format: <DateTime_iso8601>_<DialfreqHz>_<mode>........
+        #   eg 20251026T192630Z_10130000_usb........
+        rexpat = r"(\d{8}T\d{6}Z)_(\d{7,})_(usb|lsb).*"
+        match = re.search(rexpat, fn)
+
+        res = {}
+        if match:
+            
+            res = {
+                "record_time": datetime.fromisoformat(match.group(1)),
+                "freq": int(match.group(2)),
+                "radio_mode": match.group(3)
+            }
+
+        # Validate values and use commandline argument if provided:
+        if ("freq" in res):
+            if (self.freq_hz and (res["freq"] != self.freq_hz)):
+                raise ValueError(f"ERROR: Object frequency : [{self.freq_hz}] and filename: [{res['freq']}] do not match.")
+            
+            self.set_freq_hz(res['freq'])
+                
+        if ("radio_mode" in res):
+            if (self.radio_mode and (res["radio_mode"] != self.radio_mode)):
+                raise ValueError(f"ERROR: Object Radio Mode : [{self.radio_mode}] and filename: [{res['radio_mode']}] do not match.")
+            
+            self.set_radio_mode(res['radio_mode'])
+
+        if ("record_time" in res):
+            if (self.record_time and (res["record_time"] != self.record_time)):
+                raise ValueError(f"ERROR: Object Record Time : [{self.record_time}] and filename: [{res['record_time']}] do not match.")
+
+            self.set_record_time(res['record_time'])
+
+        return res
+
+
+    def processJs8DecodeLine(self, msg:str, record_time:datetime, freq_khz:int=None):
+
+        self.set_record_time(record_time)
+
+        if freq_khz:
+            self.set_freq_khz(freq_khz)
+
+            
+        parsedMsg = self.parse(msg)
+        print(parsedMsg)
+
+
+    # 
+    def processJs8DecodeFile(self, js8decode_fn:str, record_time:datetime=None, freq_khz:int=None):
+
+        if freq_khz:
+            self.set_freq_khz(freq_khz)
+
+        if record_time:
+            self.set_record_time(record_time)
+
+        self.processJTFilename(js8decode_fn)
+
+        # Open and process the file line by line
+        try:
+            with open(js8decode_fn, "r") as file:
+                for line in file:
+                    out = self.parse(line)
+                    if out:
+                        out["decode_file"] = js8decode_fn
+                        print(out)
+
+        except FileNotFoundError as e:
+            raise FileNotFoundError(f"The file '{js8decode_fn}' was not found.") from e
+        except Exception as e:
+            raise Exception(f"Error while decoding file '{js8decode_fn}'. {e}") from e
+
+        return 0
+
+#################################################################################
 
 def processArgs():
 
@@ -29,166 +212,23 @@ def processArgs():
 
     return args
 
-def parse(params, raw_msg):
-    try:
-        msg = raw_msg.rstrip()
-        if decoderRegex.match(msg):
-            return
-        if msg.startswith(" EOF on input file"):
-            return
-
-        frame = Js8().parse_message(msg)
-
-        #print("-----------------------------------------------------------------")
-        #print(dir(frame))
-
-        is_spot = False
-        if ((isinstance(frame, Js8FrameHeartbeat) or isinstance(frame, Js8FrameCompound)) and frame.grid):
-            is_spot = True
-
-        timestamp = int(datetime.fromisoformat(params["record_time"]).timestamp())
-
-        out = {
-            #"timestamp": frame.timestamp,
-            "timestamp": timestamp,
-            "mode": "JS8",
-            "dial_freq": params["freq"],
-            "offset": frame.freq,
-            "freq": params["freq"] + frame.freq,
-            "thread_type": frame.thread_type,
-            "js8mode": frame.mode,
-            "callsign": None,
-            "locator": None,
-            "callsign_to": None,
-            "msg": str(frame),
-            "db": frame.db,
-            "dt": frame.dt,
-            "spot": is_spot,
-            "cmd": None,
-            "snr": None,
-            "frame_class": frame.__class__.__name__,
-            "decode_file": params["decode_file"],
-            "raw_msg": raw_msg,
-        }
-
-
-        if (hasattr(frame, 'callsign')):
-            out["callsign"] = frame.callsign
-
-        if (hasattr(frame, 'callsign_from')):
-            out["callsign"] = frame.callsign_from
-            
-        if (hasattr(frame, 'callsign_to')):
-            out["callsign_to"] = frame.callsign_to
-            
-        if (hasattr(frame, 'grid')):
-            out["locator"] = frame.grid
-            
-        if (hasattr(frame, 'cmd')):
-            out["cmd"] = frame.cmd
-            
-        if (hasattr(frame, 'snr')):
-            out["snr"] = frame.snr
-            
-        return out
-
-    except Exception as e:
-        print(f"ERROR: error while parsing js8 message: [{msg}]. {e}")
-
-# Determines if the first part of the firstname confirms to "--jt" option used by recording utlising (ie pcmrecord).
-def processJTFilename(fn):
-    # <DateTime_iso8601>_<DialfreqHz>_<mode>........
-    # eg 20251026T192630Z_10130000_usb.wav
-    rexpat = r"(\d{8}T\d{6}Z)_(\d{7,})_(usb|lsb).*"
-    match = re.search(rexpat, fn)
-
-    res = {}
-    if match:
-        
-        res = {
-#            "record_time": datetime.fromisoformat(match.group(1)),
-            "record_time": match.group(1),
-            "freq": int(match.group(2)),
-            "mode": match.group(3)
-        }
-
-    res["decode_file"] = fn
-
-    # Validate values and use commandline argument if provided:
-    if ("freq" in res):
-        if (args.freq and (res["freq"] != args.freq)):
-            print(f"ERROR: Frequency specified via command line: [{args.freq}] and filename: [{res['freq']}] do not match. File: [{fn}] will be skipped.")
-            sys.exit(-1)
-    else:
-        if (args.freq):
-            res["freq"] = args.freq
-        else:
-            print("ERROR: Unable to determine frequency. Please ensure to specify frequency as argument, or ensure filename is supplied using expected naming convention.")
-            sys.exit(-1)
-
-    if ("mode" in res):
-        if (args.mode and (res["mode"] != args.mode)):
-            print(f"ERROR: Mode specified via command line: [{args.mode}] and filename: [{res['mode']}] do not match. File: [{fn}] will be skipped.")
-            sys.exit(-1)
-    else:
-        if (args.mode):
-            res["mode"] = args.mode
-        else:
-            print("ERROR: Unable to determine mode (ie usb/lsb). Please ensure to specify mode as argument, or ensure filename is supplied using expected naming convention.")
-            sys.exit(-1)
-
-    if ("record_time" in res):
-        if (args.record_time and (res["record_time"] != args.record_time)):
-            print(f"ERROR: Recording date/time specified via command line: [{args.record_time}] and filename: [{res['record_time']}] do not match. File: [{fn}] will be skipped.")
-            sys.exit(-1)
-    else:
-        if (args.record_time):
-            res["record_time"] = args.record_time
-        else:
-            print("ERROR: Unable to determine recording date/time. Please ensure to specify recording date/time as argument, or ensure filename is supplied using expected naming convention.")
-            sys.exit(-1)
-
-    return res
-
-
-
-def processJs8DecodeLine(msg):
-    frame = Js8().parse_message(msg)
-    print(str(frame))
-
-    print("-----------------------------------------------------------------")
-    print(dir(frame))
-
-
-
-# 
-def processJs8DecodeFile(js8decode_fn):
-    params = processJTFilename(js8decode_fn)
-
-    # Open and process the file line by line
-    try:
-        with open(js8decode_fn, "r") as file:
-            for line in file:
-                out = parse(params, line)
-                if out:
-                    #print(f"-- [{js8decode_fn}]")
-                    print(out)
-    except FileNotFoundError:
-        print("Error: The file '",js8decode_fn,"' was not found.")
-    except Exception as e:
-        print(f"An error occurred: {e}")
-
-    return 0
-
 ########
 ## Main
 ########
 
 args = processArgs()
 
+record_time = datetime.fromisoformat(args.record_time) if args.record_time else None
+
+parser = Js8Parser(args.freq, args.mode)
+#parser = Js8Parser(args.freq, args.mode, datetime.fromisoformat(record_time))
+
 if (args.decode_file):
-    processJs8DecodeFile(args.decode_file)
+    parser.processJs8DecodeFile(args.decode_file)
+    #parser.processJs8DecodeFile(args.decode_file, record_time, args.freq)
+    
 elif (args.decode_line):
-    processJs8DecodeLine(args.decode_line)
+    parser.processJs8DecodeLine(args.decode_line, record_time)
+    #parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
 else:
     print("Nothing to do!  Did you specify either FILE or MSG option?")
