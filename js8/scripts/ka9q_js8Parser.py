@@ -111,10 +111,12 @@ class Js8Parser:
                 is_spot = True
 
             timestamp = int(self.record_time.timestamp())
+            fmt_dt = self.record_time.strftime("%Y-%m-%d %H%:M:%S")
 
             out = {
                 #"timestamp": frame.timestamp,
                 "timestamp": timestamp,
+                "record_time": fmt_dt,
                 "mode": "JS8",
                 "dial_freq": self.freq_hz,
                 "offset": frame.freq,
@@ -130,6 +132,10 @@ class Js8Parser:
                 "spot": is_spot,
                 "cmd": None,
                 "snr": None,
+
+                # Status/Debugging Fields
+                "is_valid": True,
+                "validation_msg": None,
                 "frame_class": frame.__class__.__name__,
                 "raw_msg": raw_msg,
             }
@@ -173,7 +179,7 @@ class Js8Parser:
                         out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}], hasValidCallsignTo: [{hasValidCallsignTo}]"
 
                 elif (isinstance(frame, Js8FrameCompound) or isinstance(frame, Js8FrameCompoundDirected)):
-                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                    hasValidCallsign = self.validateCallsign(out["callsign"]) or self.validateGroupCallsign(out["callsign"])
                 
                     if (not hasValidCallsign):
                         out["spot"] = False
@@ -189,11 +195,12 @@ class Js8Parser:
                     out["spot"] = False
                     out["validation_msg"] = f"Unknown/Unhandled frame class: [{frame.__class__.__name__}]."
 
-            out["is_valid"] = ("validation_msg" not in out)
+            out["is_valid"] = (out["validation_msg"] is None)
 
             return out
 
         except Exception as e:
+            # TODO ensure this is logged via logger / STDERR
             print(f"ERROR: error while parsing js8 message: [{msg}]. {e}")
 
 
