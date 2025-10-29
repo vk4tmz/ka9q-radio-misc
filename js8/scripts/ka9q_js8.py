@@ -291,10 +291,10 @@ def stopDecoders(args):
     return 0
 
 def logParsedDecodeMessages(parsedMsgs, log_fn):
-    with open(decoder_pids_file, 'a') as file:
+    with open(log_fn, 'a') as file:
 
         for msg in parsedMsgs:
-            file.write(str(msg))
+            file.write(f"{str(msg)}\n")
 
 
 def startDecoder(freq_khz, submode):

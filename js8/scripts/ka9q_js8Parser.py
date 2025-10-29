@@ -5,9 +5,34 @@ import argparse
 import re
 from datetime import datetime
 from js8py import Js8
-from js8py.frames import Js8FrameHeartbeat, Js8FrameCompound
+from js8py.frames import Js8FrameHeartbeat, Js8FrameCompound, Js8FrameCompoundDirected, Js8FrameDirected, Js8FrameDataCompressed, Js8FrameData
 
 RADIO_MODE_LIST = ["usb", "lsb"]
+# Freq for which we DO NOT want to perform validation (ie 10m CB)
+IGNORE_FRAME_VALIDATION_FREQ = [ 27246 ]
+
+# This covers most callsigns from FT8/FT4/WSPR and JS8 logs:
+#  1 - [0-9][A-Z][0-9][A-Z]{1,3} - eg 6O3T, 5K0UA, 7L1EPY
+#  2 - [A-Z]{2,2}[0-9][A-Z]{1,3} - eg FW5K, RX9WN, VK4TMZ
+#  3 - [A-Z][0-9]{1,2}[A-Z]{1,3} - eg R9FI, V31DL, W4EBB
+#
+# Did Miss follow so will need to add a way have "allow list":
+#   - Special Event Callsigns:
+#     - OE175ARWT 
+#     - R1941PK
+#     - VI100SIG
+#     - HF100WSR
+#     
+## - Allows up to 3 character for prefix "stroke" and similar upto 2 character to handle stroke suffix (eg /P /MM)  
+VALID_CALLSIGN_REX=r"^(([0-9]|[A-Z]){1,3}/)?([0-9][A-Z][0-9][A-Z]{1,3}|[A-Z]{2,2}[0-9][A-Z]{1,3}|[A-Z][0-9]{1,2}[A-Z]{1,3})(/([0-9]|[A-Z]){1,2})?$"
+
+# Sourced from https://www.delta25.de/JS8-2021-11/JS8Call_Guide.pdf (see Group Callsigns page 8)
+VALID_GROUP_CALLSIGN_REX=r"^[@][A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}"
+#VALID_GROUP_CALLSIGN_REX=r"^@([0-9]|[A-Z]){3,}.*"
+
+
+GRID4_REX=r"^\w{2}\d{2}"
+
 
 class Js8Parser:
 
@@ -41,6 +66,26 @@ class Js8Parser:
         self.record_time = record_time
 
     #######################################################################
+
+    def matches(self, txt, rexpat):
+        if (txt is None):
+            return False
+        
+        match = re.search(rexpat, txt)
+
+        if match:
+            return True
+        else:
+            return False
+                
+    def validateCallsign(self, callsign):
+        return self.matches(callsign, VALID_CALLSIGN_REX)
+    
+    def validateGroupCallsign(self, callsign):
+        return self.matches(callsign, VALID_GROUP_CALLSIGN_REX)
+
+    def validateGrid(self, grid, grid_rex):
+        return self.matches(grid, grid_rex)
 
     def parse(self, raw_msg):
         try:
@@ -108,6 +153,44 @@ class Js8Parser:
             if (hasattr(frame, 'snr')):
                 out["snr"] = frame.snr
                 
+
+            # Some Validation for HAM Bands only:
+            if (self.freq_khz not in (IGNORE_FRAME_VALIDATION_FREQ)):
+                if isinstance(frame, Js8FrameHeartbeat):
+                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                    hasValidGrid = self.validateGrid(out["locator"], GRID4_REX)
+
+                    if ((not hasValidCallsign) or (not hasValidGrid)):
+                        out["spot"] = False
+                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}], hasValidGrid: [{hasValidGrid}]"
+
+                elif  isinstance(frame, Js8FrameDirected):
+                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                    hasValidCallsignTo = self.validateCallsign(out["callsign_to"]) or self.validateGroupCallsign(out["callsign_to"])
+
+                    if ((not hasValidCallsign) or (not hasValidCallsignTo)):
+                        out["spot"] = False
+                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}], hasValidCallsignTo: [{hasValidCallsignTo}]"
+
+                elif (isinstance(frame, Js8FrameCompound) or isinstance(frame, Js8FrameCompoundDirected)):
+                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                
+                    if (not hasValidCallsign):
+                        out["spot"] = False
+                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}]."
+
+                elif (isinstance(frame, Js8FrameData) or isinstance(frame, Js8FrameDataCompressed)):
+                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                    hasValidCallsignTo = self.validateCallsign(out["callsign_to"])
+
+                    # Nothing to do here ???
+
+                else:
+                    out["spot"] = False
+                    out["validation_msg"] = f"Unknown/Unhandled frame class: [{frame.__class__.__name__}]."
+
+            out["is_valid"] = ("validation_msg" not in out)
+
             return out
 
         except Exception as e:
