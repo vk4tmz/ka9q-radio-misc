@@ -162,17 +162,18 @@ class Js8Parser:
 
             
         parsedMsg = self.parse(msg)
-        print(parsedMsg)
+        return parsedMsg
 
 
     # 
     def processJs8DecodeFile(self, js8decode_fn:str, record_time:datetime=None, freq_khz:int=None):
 
+        res = []
+
         if freq_khz:
             self.set_freq_khz(freq_khz)
 
-        if record_time:
-            self.set_record_time(record_time)
+        self.set_record_time(record_time)
 
         self.processJTFilename(js8decode_fn)
 
@@ -183,14 +184,14 @@ class Js8Parser:
                     out = self.parse(line)
                     if out:
                         out["decode_file"] = js8decode_fn
-                        print(out)
+                        res.append(out)
 
         except FileNotFoundError as e:
             raise FileNotFoundError(f"The file '{js8decode_fn}' was not found.") from e
         except Exception as e:
             raise Exception(f"Error while decoding file '{js8decode_fn}'. {e}") from e
 
-        return 0
+        return res
 
 #################################################################################
 
@@ -216,19 +217,26 @@ def processArgs():
 ## Main
 ########
 
-args = processArgs()
+def main():
+    args = processArgs()
 
-record_time = datetime.fromisoformat(args.record_time) if args.record_time else None
+    record_time = datetime.fromisoformat(args.record_time) if args.record_time else None
 
-parser = Js8Parser(args.freq, args.mode)
-#parser = Js8Parser(args.freq, args.mode, datetime.fromisoformat(record_time))
+    parser = Js8Parser(args.freq, args.mode)
+    #parser = Js8Parser(args.freq, args.mode, datetime.fromisoformat(record_time))
 
-if (args.decode_file):
-    parser.processJs8DecodeFile(args.decode_file)
-    #parser.processJs8DecodeFile(args.decode_file, record_time, args.freq)
-    
-elif (args.decode_line):
-    parser.processJs8DecodeLine(args.decode_line, record_time)
-    #parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
-else:
-    print("Nothing to do!  Did you specify either FILE or MSG option?")
+    if (args.decode_file):
+        res = parser.processJs8DecodeFile(args.decode_file)
+        #res = parser.processJs8DecodeFile(args.decode_file, record_time, args.freq)
+        for msg in res:
+            print (msg)
+        
+    elif (args.decode_line):
+        res = parser.processJs8DecodeLine(args.decode_line, record_time)
+        #res = parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
+        print (res)
+    else:
+        print("Nothing to do!  Did you specify either FILE or MSG option?")
+
+if __name__ == "__main__":
+    main()

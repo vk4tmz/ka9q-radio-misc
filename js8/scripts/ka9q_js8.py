@@ -25,6 +25,7 @@ import time
 
 from datetime import datetime, timezone
 from pathlib import Path
+from ka9q_js8Parser import Js8Parser
 
 DEFAULT_DATA_DIR="./data"
 DEFAULT_MCAST_ADDR="js8-pcm.local"
@@ -62,10 +63,18 @@ DEFAULT_DECODE_DEPTH = 3
 
 decoder_threads = []
 
+mode_root_dir=DEFAULT_DATA_DIR
 mode_rec_dir=DEFAULT_DATA_DIR
+mode_rec_error_dir=DEFAULT_DATA_DIR
 mode_rec_proc_dir=DEFAULT_DATA_DIR
 mode_data_dir=DEFAULT_DATA_DIR
+mode_dec_dir=DEFAULT_DATA_DIR
+mode_dec_error_dir=DEFAULT_DATA_DIR
+mode_dec_proc_dir=DEFAULT_DATA_DIR
 mode_tmp_dir=DEFAULT_DATA_DIR
+
+# TODO: Remove this once converted to class as only needs to be local
+args = None
 
 parser = argparse.ArgumentParser(description="A simple script with arguments.")
 
@@ -108,21 +117,35 @@ def processArgs():
 def setupSubmodeFolders(freq_khz, mode):
     # Setup mode specific folders
     
+    global mode_root_dir
     global mode_rec_dir
+    global mode_rec_error_dir
     global mode_rec_proc_dir
     global mode_data_dir
+    global mode_dec_dir
+    global mode_dec_error_dir
+    global mode_dec_proc_dir
     global mode_tmp_dir
 
     freq_hz = freq_khz * 1000
 
-    mode_rec_dir = f"{data_dir}/{freq_hz}/{mode}/rec"
-    mode_rec_proc_dir = f"{data_dir}/{freq_hz}/{mode}/rec/done"
-    mode_data_dir = f"{data_dir}/{freq_hz}/{mode}/data"
+    mode_root_dir = f"{data_dir}/{freq_hz}/{mode}" 
+    mode_rec_dir = f"{mode_root_dir}/rec"
+    mode_rec_error_dir = f"{mode_rec_dir}/error"
+    mode_rec_proc_dir = f"{mode_rec_dir}/done"
+    mode_data_dir = f"{mode_root_dir}/data"
+    mode_dec_dir = f"{mode_data_dir}/decode"
+    mode_dec_error_dir = f"{mode_dec_dir}/error"
+    mode_dec_proc_dir = f"{mode_dec_dir}/done"
     mode_tmp_dir = f"{data_dir}/{freq_hz}/{mode}/tmp"
 
     Path(mode_rec_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_rec_error_dir).mkdir(parents=True, exist_ok=True)
     Path(mode_rec_proc_dir).mkdir(parents=True, exist_ok=True)
     Path(mode_data_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_error_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_proc_dir).mkdir(parents=True, exist_ok=True)
     Path(mode_tmp_dir).mkdir(parents=True, exist_ok=True)
 
 
@@ -142,6 +165,9 @@ def findFile(dirss, re_pat, age_secs):
             age = curr_time - entry.stat().st_mtime
             if age > age_secs:
                 files.append(entry.name)
+
+    # Sort to ensure we try to process the files in order they were created
+    files.sort()
 
     return files
 
@@ -264,6 +290,13 @@ def stopDecoders(args):
 
     return 0
 
+def logParsedDecodeMessages(parsedMsgs, log_fn):
+    with open(decoder_pids_file, 'a') as file:
+
+        for msg in parsedMsgs:
+            file.write(str(msg))
+
+
 def startDecoder(freq_khz, submode):
 
     now_utc = datetime.now(timezone.utc)
@@ -271,10 +304,27 @@ def startDecoder(freq_khz, submode):
     freq_hz=freq_khz * 1000
     mode=submode['name']
     
-    mode_rec_dir = f"{data_dir}/{freq_hz}/{mode}/rec"
-    mode_rec_proc_dir = f"{data_dir}/{freq_hz}/{mode}/rec/done"
-    mode_data_dir = f"{data_dir}/{freq_hz}/{mode}/data"
+
+    # TODO: Remove once we ensure thread safe using the setup call
+    mode_root_dir = f"{data_dir}/{freq_hz}/{mode}"
+    mode_rec_dir = f"{mode_root_dir}/rec"
+    mode_rec_error_dir = f"{mode_rec_dir}/error"
+    mode_rec_proc_dir = f"{mode_rec_dir}/done"
+    mode_data_dir = f"{mode_root_dir}/data"
+    mode_dec_dir = f"{mode_root_dir}/decode"
+    mode_dec_error_dir = f"{mode_dec_dir}/error"
+    mode_dec_proc_dir = f"{mode_dec_dir}/done"
     mode_tmp_dir = f"{data_dir}/{freq_hz}/{mode}/tmp"
+
+    Path(mode_rec_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_rec_error_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_rec_proc_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_data_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_error_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_dec_proc_dir).mkdir(parents=True, exist_ok=True)
+    Path(mode_tmp_dir).mkdir(parents=True, exist_ok=True)
+
 
 
     print(f"-- Starting js8Decoder process for Freq: [{freq_khz}] Mode: [{mode}] Folder: [{mode_rec_dir}]" )
@@ -290,46 +340,61 @@ def startDecoder(freq_khz, submode):
             "-t", mode_tmp_dir, 
         ]
 
+    js8Parser = Js8Parser(freq_khz, "usb")
+
     for wav_fn in files:
         # JS8_CMD=" ${rec_dir}/${wavfn}"
         src_fn = f"{mode_rec_dir}/{wav_fn}"
-        decode_fn = f"{src_fn}.{mode}.decode"
+        decode_fn = f"{wav_fn}.decode"
+        decode_ffp = f"{mode_dec_dir}/{decode_fn}"
 
         print(f"-- JS8 decoding process started for file: [{src_fn}].")
 
         cmd = base_cmd + [src_fn]
 
         ret_code = None
-        with open(decode_fn, "w") as decode_log:
+        with open(decode_ffp, "w") as decode_log:
 
             # Start the process in a new session, detaching it from the current terminal
             process = subprocess.Popen(cmd,
                                     stdout=decode_log, 
                                     stderr=decode_log)
 
-            return_code = process.wait()
-
-        # Debug:
-        # with open(decode_fn, 'r') as file:
-        #     content = file.read()
-        #     print(content)
+            ret_code = process.wait()
 
         if (ret_code and (ret_code != 0)):
             print(f"ERROR: Failed to decode wav file: {src_fn}  ReturnCode: [{ret_code}].") 
-            os.rename(decode_fn, f"{decode_fn}.error")
+            os.rename(decode_ffp, f"{mode_dec_error_dir}/{decode_fn}")
         else: 
-            os.rename(decode_fn, f"{decode_fn}.success")
+            tmp_decode_ffp = f"{mode_dec_proc_dir}/{decode_fn}"
+            os.rename(decode_ffp, tmp_decode_ffp)
+
+            # Decode using Js8Parser 
+            parsedMsgs = js8Parser.processJs8DecodeFile(tmp_decode_ffp, None)
+
+            if (parsedMsgs and (len(parsedMsgs) > 0)):
+                print(f"DEBUG: Decode file: [{tmp_decode_ffp}] contained [{len(parsedMsgs)}] messages.")
+                os.rename(tmp_decode_ffp, f"{mode_dec_proc_dir}/{decode_fn}")
+            else:
+                # Contrain no decoded message remove it
+                os.remove(tmp_decode_ffp)
+
+            logParsedDecodeMessages(parsedMsgs, f"{mode_data_dir}/all_parsed_decodes.txt")
+
 
         # Move wav file to processed / done folder
         os.rename(src_fn, f"{mode_rec_proc_dir}/{wav_fn}")
 
-        print(f"-- JS8 decoding process completed for file: [{src_fn}].")
+        #print(f"-- JS8 decoding process completed for file: [{src_fn}].")
 
     return 0;
 
 
 def js8DecoderHandler(freq_khz, submode):
     print(f"js8Decoder handler prcessor started for Freq: [{freq_khz}] khz SubMode: [{submode['name']}]")
+
+    # TODO: Confirm thread safe ?  for now will set local
+    #setupSubmodeFolders(freq_khz, submode)
 
     while True:
 
@@ -396,11 +461,13 @@ def startRecorder(freq_khz, submode):
     freq_ssrc = FREQ_SSRC[freq_idx]
     print(f"Selected SSRC: [{freq_ssrc}] for Freq: [{freq_khz}]")
 
+    # IMPORTANT - USE Scott's WSPRDaemon version of "pcmrecord" to ensure that based on -L  will start correct time.
     cmd = [PCMRECORD_BIN, 
            "-L", str(submode["duration"]), 
            "-d", mode_rec_dir, 
+           "-W", 
            "-S", 
-           str(freq_khz), 
+           str(freq_ssrc), 
            "--jt", 
            args.mcast_addr]
 
@@ -580,32 +647,37 @@ def checkRecorders(args):
 ## Main
 ########
 
-args = processArgs()
+def main():
+    global args
+    args = processArgs()
 
-print(f"Performing Process: [{args.process}] Action: [{args.action}]")
+    print(f"Performing Process: [{args.process}] Action: [{args.action}]")
 
-if (args.process == "record"):
-    if args.action == "start":
-        startRecorders(args)
-    elif args.action == "stop":
-        stopRecorders(args)
-    elif args.action == "status":
-        checkRecorders(args)
+    if (args.process == "record"):
+        if args.action == "start":
+            startRecorders(args)
+        elif args.action == "stop":
+            stopRecorders(args)
+        elif args.action == "status":
+            checkRecorders(args)
+        else:
+            print(f"Unknown recording action: {args.command}")
+            parser.print_help()
+
+    elif (args.process == "decode"):
+        if args.action == "start":
+            startDecoders(args)
+        elif args.action == "stop":
+            stopDecoders(args)
+        elif args.action == "status":
+            checkDecoders(args)
+        else:
+            print(f"Unknown recording action: {args.command}")
+            parser.print_help()
+
     else:
-        print(f"Unknown recording action: {args.command}")
+        print(f"Unknown process: {args.command} requested.")
         parser.print_help()
 
-elif (args.process == "decode"):
-    if args.action == "start":
-        startDecoders(args)
-    elif args.action == "stop":
-        stopDecoders(args)
-    elif args.action == "status":
-        checkDecoders(args)
-    else:
-        print(f"Unknown recording action: {args.command}")
-        parser.print_help()
-
-else:
-    print(f"Unknown process: {args.command} requested.")
-    parser.print_help()
+if __name__ == "__main__":
+        main()
