@@ -347,18 +347,20 @@ def startDecoder(freq_khz, submode):
         src_fn = f"{mode_rec_dir}/{wav_fn}"
         decode_fn = f"{wav_fn}.decode"
         decode_ffp = f"{mode_dec_dir}/{decode_fn}"
+        decode_err_ffp = f"{mode_dec_dir}/error/{decode_fn}.error"
 
         print(f"-- JS8 decoding process started for file: [{src_fn}].")
 
         cmd = base_cmd + [src_fn]
 
         ret_code = None
-        with open(decode_ffp, "w") as decode_log:
+        with open(decode_ffp, "w") as decode_log, \
+             open(decode_err_ffp, "w") as decode_err_log:
 
             # Start the process in a new session, detaching it from the current terminal
             process = subprocess.Popen(cmd,
                                     stdout=decode_log, 
-                                    stderr=decode_log)
+                                    stderr=decode_err_log)
 
             ret_code = process.wait()
 
