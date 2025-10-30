@@ -2,6 +2,7 @@
 
 import sys
 import argparse
+import logging
 import re
 from datetime import datetime
 from js8py import Js8
@@ -33,6 +34,8 @@ VALID_GROUP_CALLSIGN_REX=r"^[@][A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/
 
 GRID4_REX=r"^\w{2}\d{2}"
 
+
+logger = logging.getLogger(__name__)
 
 class Js8Parser:
 
@@ -111,7 +114,7 @@ class Js8Parser:
                 is_spot = True
 
             timestamp = int(self.record_time.timestamp())
-            fmt_dt = self.record_time.strftime("%Y-%m-%d %H:%M:%S")
+            fmt_dt = self.record_time.strftime("%Y/%m/%d %H:%M:%S")
 
             out = {
                 #"timestamp": frame.timestamp,
