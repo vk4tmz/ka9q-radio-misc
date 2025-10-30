@@ -14,6 +14,7 @@
 
 
 import argparse
+import json
 import logging
 import psutil
 import os
@@ -61,8 +62,8 @@ DEFAULT_DECODE_DEPTH = 3
 
 # Configure basic logging to a file and the console
 logging.basicConfig(
-#    level=logging.INFO,  # Set the minimum logging level to INFO
-    level=logging.DEBUG,  # Set the minimum logging level to INFO    
+    level=logging.INFO,  # Set the minimum logging level to INFO
+#    level=logging.DEBUG,  # Set the minimum logging level to INFO    
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
         logging.FileHandler("ka9q-j8.log"),  # Log to a file
@@ -292,8 +293,17 @@ class Js8Decoder:
         with open(log_fn, 'a') as file:
 
             for msg in parsedMsgs:
-                file.write(f"{str(msg)}\n")
+                file.write(f"{json.dumps(msg)}\n")
 
+    def loadParsedDecodeMessages(self, log_fn):
+        msgs = []
+        with open(log_fn, 'r') as file:
+
+            for line in file:
+                msgs.append(json.loads(line))
+
+        return msgs
+        
 
 
 class Js8DecodingControl:
@@ -489,6 +499,35 @@ class Js8DecodingControl:
 
         return 0
     
+    #####################################################################
+    ## Utility Related functions
+    #####################################################################    
+
+    def rebuildSpots(self):
+
+        
+        logger.info("Rebuilding spot log from archived decodes...")
+        
+        for freq in self.freq_list:
+            for submode in self.submodes:
+                
+                # Create a Decoder Hanlding thread.
+                #dh_thread = threading.Thread(target=js8DecoderHandler, args=(freq, submode,), daemon=True)
+                mode_conf = ModeConfig(freq, submode, self.data_dir, self.mcast_addr)
+                js8_dec = Js8Decoder(mode_conf)
+                
+                all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt"
+                logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+                dec_msgs = js8_dec.loadParsedDecodeMessages(all_dec_fn)
+                
+                logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding spots...")
+
+                for dec in dec_msgs:
+                    print(f"{dec['timestamp']}, {dec['offset']}")
+
+                logger.debug(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+        return 0
+    
         
     #####################################################################
     ## Recording Related functions
@@ -681,7 +720,7 @@ def findFile(dirss, re_pat, age_secs, sort:bool=True):
 def processArgs(parser):
 
     parser = argparse.ArgumentParser(description="KA9Q-Radio Js8 Decoding Controler.")
-    parser.add_argument("process", type=str, choices=['record','decode'], help="The process to execute (e.g., 'record', 'decode')")
+    parser.add_argument("process", type=str, choices=['record','decode', 'rebuild-spots'], help="The process to execute (e.g., 'record', 'decode')")
     parser.add_argument("action", type=str, choices=['start', 'stop', 'status'], help="The action to execute (e.g., 'start', 'stop', 'status')")
 
     parser.add_argument("-f", "--freq", type=int, nargs='+', default=FREQ_LIST, help="Limit recording processes to 1 or more frequencies. Frquency is that of the radio dial frequency in Hz. If ommited then all standard js8call frequencies will be used.")
@@ -729,6 +768,8 @@ def main():
         else:
             logger.error(f"Unknown recording action: {args.command}")
             parser.print_help()
+    elif (args.process == "rebuild-spots"):
+        js8_dc.rebuildSpots();
 
     else:
         logger.error(f"Unknown process: {args.command} requested.")

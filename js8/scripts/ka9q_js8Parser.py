@@ -2,6 +2,7 @@
 
 import sys
 import argparse
+import json
 import logging
 import re
 from datetime import datetime
@@ -322,12 +323,12 @@ def main():
         res = parser.processJs8DecodeFile(args.decode_file)
         #res = parser.processJs8DecodeFile(args.decode_file, record_time, args.freq)
         for msg in res:
-            print (msg)
+            print (json.dumps(msg))
         
     elif (args.decode_line):
         res = parser.processJs8DecodeLine(args.decode_line, record_time)
         #res = parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
-        print (res)
+        print (json.dumps(res))
     else:
         print("Nothing to do!  Did you specify either FILE or MSG option?")
 
