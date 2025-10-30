@@ -111,7 +111,7 @@ class Js8Parser:
                 is_spot = True
 
             timestamp = int(self.record_time.timestamp())
-            fmt_dt = self.record_time.strftime("%Y-%m-%d %H%:M:%S")
+            fmt_dt = self.record_time.strftime("%Y-%m-%d %H:%M:%S")
 
             out = {
                 #"timestamp": frame.timestamp,
