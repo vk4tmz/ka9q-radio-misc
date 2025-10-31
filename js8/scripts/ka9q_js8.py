@@ -280,7 +280,9 @@ class Js8Decoder:
                 # Handle Spots
                 spots = []
                 for msg in parsedMsgs:
-                    spots.append(f"{generateSpot(msg)}\n")
+                    spot = generateSpot(msg)
+                    if (spot is not None):
+                        spots.append(f"{spot}\n")
 
                 # Since there are many up to 40 odd freq/mode threads we need to ensure before update spots that we get lock first.
                 if (len(spots) > 0):
