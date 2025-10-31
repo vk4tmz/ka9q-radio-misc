@@ -291,8 +291,10 @@ class Js8Decoder:
                         writeStringsToFile(self.mode_conf.spot_log_fn, spots, True)
 
 
-            # Move wav file to processed / done folder
-            os.rename(src_fn, f"{self.mode_conf.mode_rec_proc_dir}/{wav_fn}")
+            # Default to removing wav if successfully decoded and parsed. 
+            # TODO: Need to possibly add option to "arvhice" / move wav file to processed / done folder
+            #   os.rename(src_fn, f"{self.mode_conf.mode_rec_proc_dir}/{wav_fn}")
+            os.remove(src_fn)
 
             logger.debug(f"-- JS8 decoding process completed for file: [{src_fn}].")
 

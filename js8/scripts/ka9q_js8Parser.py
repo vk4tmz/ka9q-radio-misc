@@ -206,7 +206,7 @@ class Js8Parser:
             # Apply this check to ALL callsign if available
             if ((callsign and (callsign.count("/") > 1)) or (callsignTo and (callsignTo.count("/") > 1))):
                out["spot"] = False
-               validationErrors["hasValidCallsign"] = "False"
+               validationErrors["hasValidCallsign"] = False
 
             out["validation_errors"]=validationErrors
             out["is_valid"] = (len(validationErrors) == 0)
