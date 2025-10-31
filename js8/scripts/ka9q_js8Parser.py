@@ -46,6 +46,7 @@ class Js8Parser:
     record_time: datetime
 
     decoderRegex = re.compile(" ?<Decode(Started|Debug|Finished)>")
+    #decodeMsgRegex = r"(?P<ts>\d{6})\s+(?P<snr>[+-]?\d{2})\s+(?P<dt>[+-]?\d{1,2}\.\d)\s+(?P<offset>\d{,4})\s+(?P<mode>\w)\s+(?P<msg>.*)\s+\d.*"
 
     def __init__(self, freq_khz=None, radio_mode=None, record_time=None):
         self.set_freq_khz(freq_khz)
@@ -83,6 +84,9 @@ class Js8Parser:
             return False
                 
     def validateCallsign(self, callsign):
+        if (not callsign):
+            return False
+
         return self.matches(callsign, VALID_CALLSIGN_REX)
     
     def validateGroupCallsign(self, callsign):
@@ -106,9 +110,6 @@ class Js8Parser:
                 raise ValueError("record_time has not been set.")
 
             frame = Js8().parse_message(msg)
-
-            #print("-----------------------------------------------------------------")
-            #print(dir(frame))
 
             is_spot = False
             if ((isinstance(frame, Js8FrameHeartbeat) or isinstance(frame, Js8FrameCompound)) and frame.grid):
@@ -139,7 +140,7 @@ class Js8Parser:
 
                 # Status/Debugging Fields
                 "is_valid": True,
-                "validation_msg": None,
+                "validation_errors": {},
                 "frame_class": frame.__class__.__name__,
                 "raw_msg": raw_msg,
             }
@@ -163,49 +164,58 @@ class Js8Parser:
             if (hasattr(frame, 'snr')):
                 out["snr"] = frame.snr
                 
+            callsign = out["callsign"]
+            callsignTo = out["callsign_to"]
+            validationErrors = {}
 
             # Some Validation for HAM Bands only:
             if (self.freq_khz not in (IGNORE_FRAME_VALIDATION_FREQ)):
                 if isinstance(frame, Js8FrameHeartbeat):
-                    hasValidCallsign = self.validateCallsign(out["callsign"])
+                    hasValidCallsign = self.validateCallsign(callsign)
                     hasValidGrid = self.validateGrid(out["locator"], GRID4_REX)
 
                     if ((not hasValidCallsign) or (not hasValidGrid)):
                         out["spot"] = False
-                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}], hasValidGrid: [{hasValidGrid}]"
+                        validationErrors = ({"hasValidCallsign": hasValidCallsign, "hasValidGrid": hasValidGrid})
 
                 elif  isinstance(frame, Js8FrameDirected):
-                    hasValidCallsign = self.validateCallsign(out["callsign"])
-                    hasValidCallsignTo = self.validateCallsign(out["callsign_to"]) or self.validateGroupCallsign(out["callsign_to"])
+                    hasValidCallsign = self.validateCallsign(callsign)
+                    hasValidCallsignTo = self.validateCallsign(callsignTo) or self.validateGroupCallsign(callsignTo)
 
                     if ((not hasValidCallsign) or (not hasValidCallsignTo)):
                         out["spot"] = False
-                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}], hasValidCallsignTo: [{hasValidCallsignTo}]"
+                        validationErrors = ({"hasValidCallsign": hasValidCallsign, "hasValidCallsignTo": hasValidCallsignTo})
 
                 elif (isinstance(frame, Js8FrameCompound) or isinstance(frame, Js8FrameCompoundDirected)):
-                    hasValidCallsign = self.validateCallsign(out["callsign"]) or self.validateGroupCallsign(out["callsign"])
+                    hasValidCallsign = self.validateCallsign(callsign) or self.validateGroupCallsign(callsign)
                 
                     if (not hasValidCallsign):
                         out["spot"] = False
-                        out["validation_msg"] = f"Invalid values - hasValidCallsign: [{hasValidCallsign}]."
+                        validationErrors = ({"hasValidCallsign": hasValidCallsign})
 
                 elif (isinstance(frame, Js8FrameData) or isinstance(frame, Js8FrameDataCompressed)):
-                    hasValidCallsign = self.validateCallsign(out["callsign"])
-                    hasValidCallsignTo = self.validateCallsign(out["callsign_to"])
+                    hasValidCallsign = self.validateCallsign(callsign)
+                    hasValidCallsignTo = self.validateCallsign(callsignTo)
 
                     # Nothing to do here ???
 
                 else:
                     out["spot"] = False
-                    out["validation_msg"] = f"Unknown/Unhandled frame class: [{frame.__class__.__name__}]."
+                    validationErrors = ({"unknownFrameClass": frame.__class__.__name__})
+            
+            # Apply this check to ALL callsign if available
+            if ((callsign and (callsign.count("/") > 1)) or (callsignTo and (callsignTo.count("/") > 1))):
+               out["spot"] = False
+               validationErrors["hasValidCallsign"] = "False"
 
-            out["is_valid"] = (out["validation_msg"] is None)
+            out["validation_errors"]=validationErrors
+            out["is_valid"] = (len(validationErrors) == 0)
 
             return out
 
         except Exception as e:
-            # TODO ensure this is logged via logger / STDERR
-            print(f"ERROR: error while parsing js8 message: [{msg}]. {e}")
+            logger.error(f"Error while parsing js8 message: [{msg}]. {e}")
+            return None
 
 
     # Determines if the first part of the firstname confirms to "--jt" option used by recording utlising (ie pcmrecord).
@@ -302,7 +312,7 @@ def processArgs():
     args = parser.parse_args()
 
     if (args.decode_line and args.decode_file):
-        print("Warning: both MSG and FILE arguments provided, only file processing will be attempted.")
+        logger.warning("Warning: both MSG and FILE arguments provided, only file processing will be attempted.")
         sys.exit(-1)
 
     return args
@@ -330,7 +340,7 @@ def main():
         #res = parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
         print (json.dumps(res))
     else:
-        print("Nothing to do!  Did you specify either FILE or MSG option?")
+        logger.info("Nothing to do!  Did you specify either FILE or MSG option?")
 
 if __name__ == "__main__":
     main()
