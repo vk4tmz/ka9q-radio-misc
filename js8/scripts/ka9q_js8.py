@@ -14,12 +14,14 @@
 
 
 import argparse
+from filelock import FileLock
 import json
 import logging
 import psutil
 import os
-import signal
 import re
+import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -31,6 +33,7 @@ from ka9q_js8Parser import Js8Parser
 
 DEFAULT_DATA_DIR="./data"
 DEFAULT_MCAST_ADDR="js8-pcm.local"
+DEFAULT_SPOT_LOG="/var/log/js8.log"
 
 PCMRECORD_BIN = "/usr/local/bin/pcmrecord"
 JS8_BIN="/usr/bin/js8"
@@ -53,11 +56,14 @@ SUBMODES_LOOKUP = {
 
 FREQ_LIST=[1842, 3578, 7078, 10130, 14078, 18104, 21078, 24922, 28078, 27246]
 # SSRC autogen can/will eventually vary from actualy freq_khz (ie 17m clashes with FT8/FT4)
-FREQ_SSRC=[1842, 3578, 7078, 10130, 14078, 18106, 21078, 24922, 28078, 27246]
+FREQ_SSRC=[1842, 3578, 7078, 10130, 14078, 18105, 21078, 24922, 28078, 27246]
 
 data_dir = DEFAULT_DATA_DIR
 
 DEFAULT_DECODE_DEPTH = 3
+
+ARCHIVE_METHOD_MOVE="AMM"
+ARCHIVE_METHOD_TRUNCATE="AMT"
 
 
 # Configure basic logging to a file and the console
@@ -78,6 +84,8 @@ logger = logging.getLogger(__name__)
 
 class ModeConfig:
 
+    spot_log_fn:str
+
     freq_list: int
     submode: str
     data_dir:str
@@ -94,12 +102,13 @@ class ModeConfig:
     mode_tmp_dir:str
 
 
-    def __init__(self, freq_khz:int, submode:str, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR):
+    def __init__(self, freq_khz:int, submode:str, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR, spot_log_fn:str=DEFAULT_SPOT_LOG):
         self.freq_khz = freq_khz
         self.freq_hz = freq_khz * 1000
         self.submode = submode
         self.data_dir = data_dir
         self.mcast_addr = mcast_addr
+        self.spot_log_fn = spot_log_fn
 
         self.setupSubmodeFolders(freq_khz, submode["name"])
 
@@ -113,7 +122,7 @@ class ModeConfig:
         self.mode_rec_error_dir = f"{self.mode_rec_dir}/error"
         self.mode_rec_proc_dir = f"{self.mode_rec_dir}/done"
         self.mode_data_dir = f"{self.mode_root_dir}/data"
-        self.mode_dec_dir = f"{self.mode_data_dir}/decode"
+        self.mode_dec_dir = f"{self.mode_root_dir}/decode"
         self.mode_dec_error_dir = f"{self.mode_dec_dir}/error"
         self.mode_dec_proc_dir = f"{self.mode_dec_dir}/done"
         self.mode_tmp_dir = f"{self.mode_root_dir}/tmp"
@@ -254,6 +263,7 @@ class Js8Decoder:
             else: 
                 tmp_decode_ffp = f"{self.mode_conf.mode_dec_proc_dir}/{decode_fn}"
                 os.rename(decode_ffp, tmp_decode_ffp)
+                os.remove(decode_err_ffp)
 
                 # Decode using Js8Parser 
                 parsedMsgs = self.js8Parser.processJs8DecodeFile(tmp_decode_ffp, None)
@@ -265,7 +275,18 @@ class Js8Decoder:
                     # Contrain no decoded message remove it
                     os.remove(tmp_decode_ffp)
 
-                self.logParsedDecodeMessages(parsedMsgs, f"{self.mode_conf.mode_data_dir}/all_parsed_decodes.txt")
+                appendJson(parsedMsgs, f"{self.mode_conf.mode_data_dir}/all_parsed_decodes.txt")
+
+                # Handle Spots
+                spots = []
+                for msg in parsedMsgs:
+                    spots.append(f"{generateSpot(msg)}\n")
+
+                # Since there are many up to 40 odd freq/mode threads we need to ensure before update spots that we get lock first.
+                if (len(spots) > 0):
+                    lock = FileLock(f"{self.mode_conf.data_dir}/spot.lock")
+                    with lock:
+                        writeStringsToFile(self.mode_conf.spot_log_fn, spots, True)
 
 
             # Move wav file to processed / done folder
@@ -286,32 +307,18 @@ class Js8Decoder:
             self.decoding_process()
 
             logger.info(f"Sleeping for 15secs ...")
-            time.sleep(15)
-
-
-    def logParsedDecodeMessages(self, parsedMsgs, log_fn):
-        with open(log_fn, 'a') as file:
-
-            for msg in parsedMsgs:
-                file.write(f"{json.dumps(msg)}\n")
-
-    def loadParsedDecodeMessages(self, log_fn):
-        msgs = []
-        with open(log_fn, 'r') as file:
-
-            for line in file:
-                msgs.append(json.loads(line))
-
-        return msgs
-        
+            time.sleep(15)       
 
 
 class Js8DecodingControl:
+
+    spot_log_fn=DEFAULT_SPOT_LOG
 
     freq_list = FREQ_LIST
     submodes = SUBMODES_BYNAME
     mcast_addr:str = DEFAULT_MCAST_ADDR
     data_dir:str
+    archive_dir:str
 
     decoder_pids_file = None
     recorder_pids_file = None
@@ -327,6 +334,9 @@ class Js8DecodingControl:
     def set_data_dir(self, data_dir: str):
         self.data_dir = data_dir
         Path(data_dir).mkdir(parents=True, exist_ok=True)
+
+        self.archive_dir = f"{self.data_dir}/archive"
+        Path(self.archive_dir).mkdir(parents=True, exist_ok=True)
 
         self.recorder_pids_file = f"{data_dir}/pcmrecord.pids"
         self.decoder_pids_file = f"{data_dir}/js8decoder.pid"
@@ -358,10 +368,7 @@ class Js8DecodingControl:
     #################################################################################
 
     def archiveDecoderPidFile(self):
-        now = datetime.now()
-        dt_suffix = datetime.now().strftime("%Y%m%d_%H%M%S.%f")
-        os.rename(self.decoder_pids_file, f"{self.decoder_pids_file}.{dt_suffix}")
-
+        archiveFile(self.decoder_pids_file, f"{self.archive_dir}/pids")
 
     def loadDecoderPid(self):
 
@@ -445,12 +452,8 @@ class Js8DecodingControl:
 
         # CSV Format
         #   <PID>,<timestamp>
-        with open(self.decoder_pids_file, 'w') as file:
-                        
-                line = f"{pid}," + \
-                    f"{timestamp}\n"
-
-                file.write(line)
+        line = f"{pid},{timestamp}\n"
+        writeStringToFile(self.decoder_pids_file, line, False)
 
         return 0
 
@@ -503,11 +506,19 @@ class Js8DecodingControl:
     ## Utility Related functions
     #####################################################################    
 
-    def rebuildSpots(self):
 
+    def rebuildSpots(self, print_only: bool=True):
+
+        rec = self.loadDecoderPid()
+
+        if ((rec is not None) and ('pid' in rec) and (not print_only)):
+            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-spots.")
+            sys.exit(0)
+
+        logger.info("Rebuilding spot log from 'all_parsed_decodes' files...")
         
-        logger.info("Rebuilding spot log from archived decodes...")
-        
+        spots = []
+
         for freq in self.freq_list:
             for submode in self.submodes:
                 
@@ -518,16 +529,80 @@ class Js8DecodingControl:
                 
                 all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt"
                 logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
-                dec_msgs = js8_dec.loadParsedDecodeMessages(all_dec_fn)
+                dec_msgs = loadJson(all_dec_fn)
                 
                 logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding spots...")
 
                 for dec in dec_msgs:
-                    print(f"{dec['timestamp']}, {dec['offset']}")
+                    spot = generateSpot(dec)
+                    if (spot):
+                        spots.append(f"{spot}\n")
+                        
+                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]. Reported [{len(spots)}] new spots.")
 
-                logger.debug(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+        # arrange by timestamp, freq, .....
+        spots.sort()
+        
+        if not print_only:
+            archiveFile(self.spot_log_fn, f"{self.archive_dir}/spots", ARCHIVE_METHOD_TRUNCATE)
+            writeStringsToFile(self.spot_log_fn, spots, False)
+        else:
+            # Moved here so printing out the sorted result
+            for spot in spots:
+                print (spot, end="")
+
+        logger.info(f"Completed rebuilding spot log, located [{len(spots)}] spots.")
+
         return 0
+
+    def rebuildAllDecodes(self, print_only: bool=True):
+
+        rec = self.loadDecoderPid()
+
+        if ((rec is not None) and ('pid' in rec) and (not print_only)):
+            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-alldecodes.")
+            sys.exit(0)
+
+
+        logger.info("Rebuilding 'all_parsed_decodes' by reparsing all archived JS8 decode files...")
+        
+        for freq in self.freq_list:
+            js8_parser = Js8Parser(freq, "usb")
+
+            for submode in self.submodes:
+                
+                # Create a Decoder Hanlding thread.
+                #dh_thread = threading.Thread(target=js8DecoderHandler, args=(freq, submode,), daemon=True)
+                mode_conf = ModeConfig(freq, submode, self.data_dir, self.mcast_addr)
+                
+                dec_files = findFile(mode_conf.mode_dec_proc_dir, r"\.decode$", 2, True)
+
+                dec_msgs = []
+
+                for dec_fn in dec_files:
+                    decode_ffp = f"{mode_conf.mode_dec_proc_dir}/{dec_fn}"
+                    parsedMsgs = js8_parser.processJs8DecodeFile(decode_ffp, None)
+
+                    if (parsedMsgs and (len(parsedMsgs) > 0)):
+
+                        for msg in parsedMsgs:
+                            dec_msgs.append(msg)
+                            if print_only:
+                                print(json.dumps(msg))
+                            
+
+                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+
+        
+                if not print_only:
+                    all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt";
+        
+                    archiveFile(all_dec_fn, f"{self.archive_dir}/alldecodes")
+                    appendJson(dec_msgs, all_dec_fn)            
     
+
+        return 0
+
         
     #####################################################################
     ## Recording Related functions
@@ -610,20 +685,22 @@ class Js8DecodingControl:
 
         # CSV Format
         #   <freq_khz>,<freq_hz>,<js8_submode>, <js8_submode_duration>,<mcast addr>,<PID>,<timestamp>,<retcode>
-        with open(self.recorder_pids_file, 'w') as file:
+        
+        pid_recs = []
+        for rec in recs:
             
-            for rec in recs:
-                
-                line = f"{rec['freq_khz']}," + \
-                    f"{rec['freq_hz']}," + \
-                    f"{rec['submode']}," + \
-                    f"{rec['submode_duration']}," + \
-                    f"{rec['mcast_addr']}," + \
-                    f"{rec['pid']}," + \
-                    f"{rec['timestamp']}," + \
-                    f"{rec['ret_code']}\n"
+            pid_rec = f"{rec['freq_khz']}," + \
+                f"{rec['freq_hz']}," + \
+                f"{rec['submode']}," + \
+                f"{rec['submode_duration']}," + \
+                f"{rec['mcast_addr']}," + \
+                f"{rec['pid']}," + \
+                f"{rec['timestamp']}," + \
+                f"{rec['ret_code']}\n"
 
-                file.write(line)
+            pid_recs.append(pid_rec);
+
+        writeStringsToFile(self.recorder_pids_file, pid_recs, False)
 
         logger.info(f"Saved {len(recs)} records to recorder pids file: [{self.recorder_pids_file}].")
 
@@ -653,9 +730,8 @@ class Js8DecodingControl:
         return 0
 
     def archiveRecorderPidsFile(self):
-        now = datetime.now()
-        dt_suffix = datetime.now().strftime("%Y%m%d_%H%M%S.%f")
-        os.rename(self.recorder_pids_file, f"{self.recorder_pids_file}.{dt_suffix}")
+        archiveFile(self.recorder_pids_file, f"{self.archive_dir}/pids")
+        
 
     def stopRecorders(self):
         logger.info("Stopping Recording services...")
@@ -695,6 +771,88 @@ class Js8DecodingControl:
 ## Helper / Utils functions
 #################################################################################
 
+def truncateFile(fn):
+    with open(fn, 'w') as f:
+        pass 
+
+def archiveFile(fn:str, archiveDir: str=None, archiveMethod: str=ARCHIVE_METHOD_MOVE):
+
+    try:
+        now = datetime.now()
+        dt_suffix = datetime.now().strftime("%Y%m%d_%H%M%S.%f")[:-3]
+
+        if os.path.exists(fn):
+            
+            fn_path, fn_base = os.path.split(fn)
+            tmp_fn = f"{fn_base}.{dt_suffix}"
+            
+            if ((archiveDir is not None) and (archiveDir != '')):
+                Path(archiveDir).mkdir(parents=True, exist_ok=True)
+                src=fn
+                dest=f"{archiveDir}/{tmp_fn}"
+            else:
+                src=fn
+                dest=f"{fn_path}/{tmp_fn}"
+
+            if (archiveMethod == ARCHIVE_METHOD_TRUNCATE):
+                # To preserve file perms we COPY original to destination then trucate the existing file.
+                shutil.copy(src, dest)
+                truncateFile(fn)
+            else:
+                # Move original and allow process to create new file
+                shutil.move(src, dest)
+
+    except Exception as e:
+        logger.error(f"Failed to archive file: [{fn}] to folder: [{archiveDir}] {e}")
+
+
+def writeStringsToFile(out_fn: str, str_list: list, append: bool=True):
+    wmode = "w"
+    if (append == True):
+        wmode ="a"
+
+    with open(out_fn, wmode) as file:                    
+            for item in str_list:
+                if (item is not None):
+                    file.write(item)
+
+    return 0
+
+def writeStringToFile(out_fn: str, item: str, append: bool=True):
+    wmode = "w"
+    if append:
+        wmode ="a"
+
+    with open(out_fn, wmode) as file:                    
+            file.write(item)
+
+    return 0
+
+def appendJson(parsedMsgs, log_fn):
+    with open(log_fn, 'a') as file:
+
+        for msg in parsedMsgs:
+            file.write(f"{json.dumps(msg)}\n")
+
+def loadJson(log_fn):
+    msgs = []
+    with open(log_fn, 'r') as file:
+
+        for line in file:
+            try:
+                msgs.append(json.loads(line))
+            except json.JSONDecodeError:
+                logger.warning(f"Invalid decode message: [{line}] ignored.")
+
+    return msgs
+
+def generateSpot(dec):
+        if (dec["spot"]):    
+            return f"{dec['record_time']} {dec['db']:>5} {dec['dt']:>4} {dec['js8mode']} {dec['freq']/1000000:>9} {dec['callsign']:>9} {dec['locator']:>4} ~ {dec['msg']}"
+
+        return None
+
+
 def findFile(dirss, re_pat, age_secs, sort:bool=True):
     curr_time = time.time();
 
@@ -720,8 +878,12 @@ def findFile(dirss, re_pat, age_secs, sort:bool=True):
 def processArgs(parser):
 
     parser = argparse.ArgumentParser(description="KA9Q-Radio Js8 Decoding Controler.")
-    parser.add_argument("process", type=str, choices=['record','decode', 'rebuild-spots'], help="The process to execute (e.g., 'record', 'decode')")
-    parser.add_argument("action", type=str, choices=['start', 'stop', 'status'], help="The action to execute (e.g., 'start', 'stop', 'status')")
+    parser.add_argument("process", type=str, choices=['record','decode', 'rebuild-spots', 'rebuild-alldecodes'], help="The process to execute (e.g., 'record', 'decode')")
+    parser.add_argument("-a", "--action", type=str, choices=['start', 'stop', 'status'], default="status", help="The action to execute (e.g., 'start', 'stop', 'status')")
+
+    # Used by Processes (rebuild-spots, rebuild-alldecodes) allowing to print data only and not update. 
+    #   Note: Decoders need to be stopped otherwise to allow updating of spots/alldecode files.
+    parser.add_argument("-po", "--print-only", action="store_true", help="The action to execute (e.g., 'start', 'stop', 'status')")
 
     parser.add_argument("-f", "--freq", type=int, nargs='+', default=FREQ_LIST, help="Limit recording processes to 1 or more frequencies. Frquency is that of the radio dial frequency in Hz. If ommited then all standard js8call frequencies will be used.")
     parser.add_argument("-m", "--mode", type=str, default="usb", help="Radio Mode (usb / lsb).")
@@ -745,7 +907,7 @@ def main():
     
     js8_dc = Js8DecodingControl(args.freq, args.sub_mode, args.data_dir, args.mcast_addr)
 
-    print(f"Performing Process: [{args.process}] Action: [{args.action}]")
+    logger.info(f"Performing Process: [{args.process}] Action: [{args.action}]")
 
     if (args.process == "record"):
         if args.action == "start":
@@ -768,8 +930,13 @@ def main():
         else:
             logger.error(f"Unknown recording action: {args.command}")
             parser.print_help()
+
     elif (args.process == "rebuild-spots"):
-        js8_dc.rebuildSpots();
+        js8_dc.rebuildSpots(args.print_only);
+
+    elif (args.process == "rebuild-alldecodes"):
+        js8_dc.rebuildAllDecodes(args.print_only);
+    
 
     else:
         logger.error(f"Unknown process: {args.command} requested.")
