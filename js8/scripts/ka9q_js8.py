@@ -1064,8 +1064,6 @@ def appendJson(parsedMsgs, log_fn):
     with open(log_fn, 'a') as file:
 
         for msg in parsedMsgs:
-            print(json.dumps(msg))
-
             file.write(f"{json.dumps(msg)}\n")
 
 def loadJson(log_fn):
