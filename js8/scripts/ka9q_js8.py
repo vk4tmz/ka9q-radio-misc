@@ -26,6 +26,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -511,6 +512,233 @@ class Js8DecodingControl:
     #####################################################################    
 
 
+    def rebuildCallsignHistory(self, print_only: bool=True):
+        rec = self.loadDecoderPid()
+
+        if ((rec is not None) and ('pid' in rec) and (not print_only)):
+            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-callsign-history.")
+            sys.exit(0)
+
+        logger.info("Rebuilding callsign history log from 'all_parsed_decodes' files...")
+        
+        callsigns = {}
+        msgByFreq = {}
+        msgByFreq_incomplete = {}
+        callsign_hist_db_fn = f"{self.data_dir}/callsign_history.db"
+
+        for freq in self.freq_list:
+            for submode in self.submodes:
+                
+                # Create a Decoder Hanlding thread.
+                #dh_thread = threading.Thread(target=js8DecoderHandler, args=(freq, submode,), daemon=True)
+                mode_conf = ModeConfig(freq, submode, self.data_dir, self.mcast_addr)
+                js8_dec = Js8Decoder(mode_conf)
+                
+                all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt"
+                logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+                dec_msgs = loadJson(all_dec_fn)
+                
+                logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding callsign history...")
+
+                for dec in dec_msgs:
+                    dial_freq = str(dec["dial_freq"])
+                    offset = dec["offset"]
+
+                    if dec["is_valid"]:
+                        
+                        if (dial_freq not in msgByFreq):
+                            band_act_recs = []
+                            msgByFreq[dial_freq] = band_act_recs
+                            msgByFreq_incomplete[dial_freq] = []
+                        else:
+                            band_act_recs = msgByFreq[dial_freq]
+
+                        #scan for activity +/-10hz
+                        act_rec = None
+                        for rec in band_act_recs:
+                            
+                            # I know the JS8 spec will print traffic +/-10Hz, but for now assume as +/- 3 as we are performing avergaing so should track
+                            # BW=10
+                            BW=3
+                            # TODO: Do I need to filter / be "mode" specific aswell ??
+                            if (((rec["offset"] - BW) <= offset <= (rec["offset"] + BW)) and 
+                                ((abs(dec["timestamp"] - rec["first_ts"]) <= 60) or (abs(dec["timestamp"] - rec["last_ts"]) <= 60))):
+                                act_rec = rec
+
+                                # TODO: any more smarts to consider here ?
+                                break
+
+                            else:
+                                # lets see if incomplete activity which has not seen a "start" (seen_first) frame has expired. If it has mark it expired and will be purged later
+                                if ((not rec["seen_first"]) or (not rec["seen_last"])) and (not rec["is_complete"]) and (not rec["is_expired"]) and (abs(rec["last_ts"] - dec["timestamp"]) > 60):
+                                    rec["is_expired"] = True
+
+
+                        if act_rec is None:
+                            # TODO: Review if seend (first/last) needed here yet.
+                            # offset will be a running average 
+                            act_rec = {"offset": offset, "first_ts": dec["timestamp"], "last_ts": dec["timestamp"], "seen_first": False, "seen_last": False, "offset_total": offset, "is_complete": False, "is_expired": False, "id": str(uuid.uuid4()), "msgs": [dec]}
+                            band_act_recs.append(act_rec)                            
+                            
+                        else:
+
+                            act_rec["msgs"].append(dec)
+                            # Handle if msgs out of order during processing
+                            if (dec["timestamp"] < act_rec["first_ts"]):
+                                act_rec["first_ts"] = dec["timestamp"]
+                            if (dec["timestamp"] > act_rec["last_ts"]):
+                                act_rec["last_ts"] = dec["timestamp"]
+                            act_rec["offset_total"] += dec["offset"]
+                            act_rec["offset"] = int(act_rec["offset_total"] / len(act_rec["msgs"]))
+
+                        # Check if we have just encounter first / last / only expected frame
+                        frame_class = dec["frame_class"]
+                        thread_type = int(dec["thread_type"])
+
+                        if ((not act_rec["is_complete"]) and (not act_rec["is_expired"])):
+
+                            ## Single Js8FrameDirected Frames
+                            if ((frame_class == "Js8FrameDirected") and (thread_type == 3)):
+                                act_rec["seen_first"] = True
+                                act_rec["seen_last"] = True
+                                act_rec["is_complete"] = True
+
+                            # Js8FrameDirected / Js8FrameDataCompressed
+                            elif ((frame_class == "Js8FrameDirected") and (thread_type == 1)):
+                                act_rec["seen_first"] = True
+                            elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 0)):
+                                # in the middle 
+                                pass
+                            elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 2)):
+                                act_rec["seen_last"] = True
+                                if (act_rec["seen_first"]):
+                                    act_rec["is_complete"] = True
+                            
+                            # Js8FrameDirected / Js8FrameData
+                            elif ((frame_class == "Js8FrameData") and (thread_type == 0)):
+                                # in the middle 
+                                pass
+                            elif ((frame_class == "Js8FrameData") and (thread_type == 2)):
+                                act_rec["seen_last"] = True
+                                if (act_rec["seen_first"]):
+                                    act_rec["is_complete"] = True
+
+                            ## Js8FrameCompound / Js8FrameCompoundDirected and Js8FrameCompoundCompressed
+                            elif ((frame_class == "Js8FrameCompound") and (thread_type == 1)):
+                                act_rec["seen_first"] = True
+                            elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 0)):
+                                # in the middle 
+                                pass
+                            elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 2)):
+                                act_rec["seen_last"] = True
+                                if (act_rec["seen_first"]):
+                                    act_rec["is_complete"] = True
+                            
+                            else:
+                                # TODO: Review and confirm 
+                                dec["is_valid"] = False
+                                ve = dec["validation_errors"]
+                                ve["unexepected_frame"] = True
+
+                            #
+                            # If now complete do the following
+                            #   TODO: if complete should we remove all dec that are "invalid" ?
+                            if act_rec["is_complete"]:
+                                full_msg = ""
+                                callsign = None
+                                timestamp = None
+                                prev_thread_type = None
+                                for msg in act_rec["msgs"]:
+                                    if (msg["is_valid"]):
+                                        l_thread_type = msg["thread_type"]
+                                        l_frame_class = msg["frame_class"]
+                                        # concat all valid messages with a space
+                                        if (msg["msg"] is not None):
+                                            full_msg = full_msg + msg["msg"]
+                                            if (l_frame_class in ["Js8FrameCompound","Js8FrameCompoundDirected"]):
+                                                full_msg = full_msg + " "
+
+                                        # Grab first valid callsign
+                                        if (msg["callsign"] is not None) and (callsign is None):
+                                            callsign = msg["callsign"]
+
+                                        # Grab first valid timestamp
+                                        if (timestamp is None and msg["timestamp"] is not None):
+                                            timestamp = msg["timestamp"]
+
+                                        prev_thread_type = thread_type
+
+
+                                act_rec["callsign"] = callsign
+                                act_rec["full_msg"] = full_msg
+                                act_rec["timestamp"] = timestamp
+
+                                # Add / link to callsign_db
+                                if callsign in callsigns:
+                                    cs_rec = callsigns[callsign]
+
+                                else:
+                                    #cs_rec = {"last_freq": (dial_freq+act_rec["offset"]), "last_ts": timestamp, "activity": []}
+                                    cs_rec = {"last_freq": dial_freq, "last_ts": timestamp, "activity": []}
+                                    callsigns[callsign] = cs_rec
+
+                                cs_rec["activity"].append(act_rec)
+
+
+                        # else:
+                        #     # TODO: Review and confirm 
+                        #     dec["is_valid"] = False
+                        #     ve = dec["validation_errors"]
+                        #     ve["unexepected_frame_after_end"] = True
+                        
+
+                        # cs_rec = callsigns[]
+                        # callsigns.append(cs_rec)  
+                
+                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}].")
+
+        # Move "expired" activity over to msgByFreq_incomplete to keep our callsign history clean
+        for dial_freq in msgByFreq.keys():
+
+            msgs = msgByFreq[dial_freq]
+            msgs_copy = msgByFreq[dial_freq][:]
+
+            incomp_msgs = msgByFreq_incomplete[dial_freq]
+
+            # Iterate throug ah copy of the msgs, move the activity over to msgByFreq_incomplete
+            for act_rec in msgs_copy:
+                if act_rec["is_expired"]:
+                     incomp_msgs.append(act_rec)
+                     msgs.remove(act_rec)
+
+
+        # Test
+        # print(f"{json.dumps(callsigns)}")
+        # print(f"{json.dumps(msgByFreq)}")
+        print(f"{json.dumps(msgByFreq_incomplete)}")
+        if True:
+            sys.exit(-1)        
+
+        # Now sort each set of bands actvities (ie offset, timestamp)
+        for band_recs in msgByFreq:
+             band_recs.sort()
+        
+
+        if not print_only:
+            archiveFile(callsign_hist_db_fn, f"{self.archive_dir}/callsign_hist_db", ARCHIVE_METHOD_TRUNCATE)
+            appendJson(msgByFreq, callsign_hist_db_fn)
+        else:
+            # TODO: Lets get logic sort
+            pass
+            # Moved here so printing out the sorted result
+            # for spot in spots:
+            #     print (spot, end="")
+
+        logger.info(f"Completed rebuilding callsign history DB: [{callsign_hist_db_fn}]")
+
+        return 0
+
+
     def rebuildSpots(self, print_only: bool=True):
 
         rec = self.loadDecoderPid()
@@ -836,6 +1064,8 @@ def appendJson(parsedMsgs, log_fn):
     with open(log_fn, 'a') as file:
 
         for msg in parsedMsgs:
+            print(json.dumps(msg))
+
             file.write(f"{json.dumps(msg)}\n")
 
 def loadJson(log_fn):
@@ -882,7 +1112,7 @@ def findFile(dirss, re_pat, age_secs, sort:bool=True):
 def processArgs(parser):
 
     parser = argparse.ArgumentParser(description="KA9Q-Radio Js8 Decoding Controler.")
-    parser.add_argument("process", type=str, choices=['record','decode', 'rebuild-spots', 'rebuild-alldecodes'], help="The process to execute (e.g., 'record', 'decode')")
+    parser.add_argument("process", type=str, choices=['record','decode', 'rebuild-spots', 'rebuild-alldecodes', 'rebuild-history'], help="The process to execute (e.g., 'record', 'decode')")
     parser.add_argument("-a", "--action", type=str, choices=['start', 'stop', 'status'], default="status", help="The action to execute (e.g., 'start', 'stop', 'status')")
 
     # Used by Processes (rebuild-spots, rebuild-alldecodes) allowing to print data only and not update. 
@@ -941,6 +1171,8 @@ def main():
     elif (args.process == "rebuild-alldecodes"):
         js8_dc.rebuildAllDecodes(args.print_only);
     
+    elif (args.process == "rebuild-history"):
+        js8_dc.rebuildCallsignHistory(args.print_only);
 
     else:
         logger.error(f"Unknown process: {args.command} requested.")

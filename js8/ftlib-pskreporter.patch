@@ -1,0 +1,101 @@
+diff --git a/ft4-pskreporter.conf b/ft4-pskreporter.conf
+index 6c14936..882e30d 100644
+--- a/ft4-pskreporter.conf
++++ b/ft4-pskreporter.conf
+@@ -1,5 +1,6 @@
+ FILE=/var/log/ft4.log
+ MODE=ft4
+-CALLSIGN=N1DQ-999
+-LOCATOR=FN42hn
+-ANTENNA="200ft Longwire"
++CALLSIGN=VK4TMZ
++LOCATOR=QG62lq
++ANTENNA="40m EFHW Antenna 7m (HAAT)"
++
+diff --git a/ft8-pskreporter.conf b/ft8-pskreporter.conf
+index 23318f6..c5bd704 100644
+--- a/ft8-pskreporter.conf
++++ b/ft8-pskreporter.conf
+@@ -1,5 +1,5 @@
+ FILE=/var/log/ft8.log
+ MODE=ft8
+-CALLSIGN=N1DQ-999
+-LOCATOR=FN42hn
+-ANTENNA="200ft Longwire"
++CALLSIGN=VK4TMZ
++LOCATOR=QG62lq
++ANTENNA="40m EFHW Antenna 7m (HAAT)"
+diff --git a/pskreporter-sender b/pskreporter-sender
+index ece3f7f..32d800b 100755
+--- a/pskreporter-sender
++++ b/pskreporter-sender
+@@ -47,6 +47,46 @@ def get_unix_timestamp(hhmm: str) -> int:
+     return unix_timestamp
+ 
+ 
++def do_js8(stream, pskreporter, mode):
++    r1 = re.compile(
++        r"(?P<ts>[0-9/]+ [0-9:]+) +(?P<snr>[-.0-9]+) +(?P<dt>[-.0-9]+) +(?P<js8mode>\w) +(?P<freq>[0-9.]+) +<?(?P<callsign>[A-Z0-9][A-Z0-9/-]+)>? +(?P<locator>[A-Z0-9]+) [\~]+ (?P<msg>.*$)"
++    )
++    
++    for line in stream:
++        # 2025/10/30 17:47:30 -20.0  0.3 A  7.080208  KD6XU/MM RG85 ~ KDVVV/MM:
++        # 2025/10/30 19:53:45 -11.0  0.1 A   7.07886    VK1AAH QF44 ~ VK1XXX: HB QG44
++
++        original_line = line.decode("utf-8").rstrip()
++
++        line = original_line
++
++        try:
++            raw_hex = None
++
++            m = r1.search(line)
++            
++            if m:
++                ts = datetime.strptime(
++                        m.group("ts"), "%Y/%m/%d %H:%M:%S"
++                    ).replace(tzinfo=timezone.utc).timestamp()
++                      
++                snr = int(float(m.group("snr")))
++                freq = 1000000.0 * float(m.group("freq"))
++
++                pskreporter.spot(
++                    callsign=m.group("callsign"),
++                    mode=mode,
++                    timestamp=ts,
++                    frequency=freq,
++                    db=snr,
++                    locator=m.group("locator"),
++                    hexbytes=raw_hex,
++                )
++            elif not line.startswith("<Decode"):
++                print(f"Failed to parse: {original_line}")
++        except Exception as e:
++            logging.error(f"Failed to create spot ({e}): {original_line}")
++
+ def do_wspr(stream, pskreporter, mode):
+     r1 = re.compile(
+         r"(?P<ts>[0-9]{4}) +(?P<snr>[-0-9]+) +(?P<u2>[-.0-9]+) +(?P<freq>[0-9.]+) +(?P<u3>[-.0-9]+) +<?(?P<callsign>[A-Z0-9][A-Z0-9/-]+)>? +(?P<locator>[A-Z0-9]+) +(?P<power>[0-9]+) *$"
+@@ -199,6 +239,8 @@ if __name__ == "__main__":
+     try:
+         if mode == "wspr":
+             do_wspr(proc.stdout, pskreporter, mode.upper())
++        elif mode == "js8":
++            do_js8(proc.stdout, pskreporter, mode.upper())
+         else:
+             submit(proc.stdout, pskreporter, mode.upper())
+     except KeyboardInterrupt:
+diff --git a/wspr-pskreporter.conf b/wspr-pskreporter.conf
+index f0d39f9..b12a80e 100644
+--- a/wspr-pskreporter.conf
++++ b/wspr-pskreporter.conf
+@@ -1,5 +1,6 @@
+ FILE=/var/log/wspr.log
+ MODE=wspr
+-CALLSIGN=N1DQ-999
+-LOCATOR=FN42hn
+-ANTENNA="200ft Longwire"
++CALLSIGN=VK4TMZ
++LOCATOR=QG62lq
++ANTENNA="40m EFHW Antenna 7m (HAAT)"
++
