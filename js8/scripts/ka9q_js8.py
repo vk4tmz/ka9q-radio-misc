@@ -75,12 +75,12 @@ logging.basicConfig(
 #    level=logging.DEBUG,  # Set the minimum logging level to INFO    
     format='%(asctime)s - %(levelname)s - %(name)s - %(message)s',
     handlers=[
-        logging.FileHandler("ka9q-j8.log"),  # Log to a file
+        logging.FileHandler("ka9q-js8.log"),  # Log to a file
         logging.StreamHandler()  # Log to the console (standard output)
     ]
 )
 
-logger = logging.getLogger(__name__)
+glogger = logging.getLogger(__name__)
 
 
 ############################################################################
@@ -106,6 +106,9 @@ class ModeConfig:
 
 
     def __init__(self, freq_khz:int, submode:str, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR, spot_log_fn:str=DEFAULT_SPOT_LOG):
+
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
+
         self.freq_khz = freq_khz
         self.freq_hz = freq_khz * 1000
         self.submode = submode
@@ -150,6 +153,7 @@ class Js8Recorder:
 
     def __init__(self, mode_conf: ModeConfig):
         self.mode_conf = mode_conf
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
 
     def start(self):
 
@@ -171,12 +175,12 @@ class Js8Recorder:
             "ret_code": None
         }
 
-        logger.info(f"Starting new pcmrecord process for Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}]")
+        self.logger.info(f"Starting new pcmrecord process for Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}]")
 
         # Determine SSRC
         freq_idx = FREQ_LIST.index(freq_khz)
         freq_ssrc = FREQ_SSRC[freq_idx]
-        logger.info(f"Selected SSRC: [{freq_ssrc}] for Freq: [{freq_khz}]")
+        self.logger.info(f"Selected SSRC: [{freq_ssrc}] for Freq: [{freq_khz}]")
 
         # IMPORTANT - USE Scott's WSPRDaemon version of "pcmrecord" to ensure that based on -L  will start correct time.
         cmd = [PCMRECORD_BIN, 
@@ -201,7 +205,7 @@ class Js8Recorder:
         rec["ret_code"] = process.returncode
 
         if (process.returncode and (process.returncode != 0)):
-            logger.error(f"Command failed with return code: {process.returncode}")
+            self.logger.error(f"Command failed with return code: {process.returncode}")
 
         return rec;
 
@@ -220,6 +224,7 @@ class Js8FrameProcessor:
 
     def __init__(self, aprsReporter:APRSReporter):
         self.aprsReporter = aprsReporter
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
 
     def archiveExpired(self):
         # Move "expired" activity over to msgByFreq_incomplete to keep our callsign history clean
@@ -241,11 +246,11 @@ class Js8FrameProcessor:
 
     def reportCommandMessageAPRSIS(self, callsign:str, msg:str):
         if (isEmpty(callsign)):
-            logger.error(f"APRIS position report request contains empty Callsign.")
+            self.logger.error(f"APRIS position report request contains empty Callsign.")
             return
         
         if (isEmpty(msg)):
-            logger.error(f"APRIS position report request contains empty Message.")
+            self.logger.error(f"APRIS position report request contains empty Message.")
             return
 
         if (self.aprsReporter is not None):
@@ -254,11 +259,11 @@ class Js8FrameProcessor:
 
     def reportPositionAPRSIS(self, aprs_callsign:str, aprs_grid:str, freq_mhz: float, snr: int):
         if (isEmpty(aprs_callsign)):
-            logger.error(f"APRIS position report request contains empty Callsign.")
+            self.logger.error(f"APRIS position report request contains empty Callsign.")
             return
 
         if (isEmpty(aprs_grid)):
-            logger.error(f"APRIS position report request for Callsign: [{aprs_callsign}] has an invalid locator: [{aprs_grid}]")
+            self.logger.error(f"APRIS position report request for Callsign: [{aprs_callsign}] has an invalid locator: [{aprs_grid}]")
             return
 
         comment = f"JS8 {aprs_callsign} {freq_mhz:.06f}MHz {snr:+03d}dB"
@@ -276,7 +281,7 @@ class Js8FrameProcessor:
         snr = int(act_rec["snr"])
 
         if (self.aprsReporter is None):
-            logger.warning(f"Received APRIS message: [{msg}], skipping as APRSIS reporting is not enabled.")
+            self.logger.warning(f"Received APRIS message: [{msg}], skipping as APRSIS reporting is not enabled.")
             return
 
         # Handles following possbile
@@ -284,7 +289,7 @@ class Js8FrameProcessor:
         match = re.match(APRSIS_CMD_REX, msg)
 
         if (match is None):
-            logger.error(f"Malformed APRSIS message: [{msg}]")
+            self.logger.error(f"Malformed APRSIS message: [{msg}]")
 
         callsign = match.group("callsign")
         grid = match.group("grid")
@@ -299,7 +304,7 @@ class Js8FrameProcessor:
             self.reportCommandMessageAPRSIS(callsign, cmd_msg)
 
         else:
-            logger.error(f"Invalid @APRIS message: [{msg}] - skipped.")
+            self.logger.error(f"Invalid @APRIS message: [{msg}] - skipped.")
 
     def processFrame(self, dec: dict):
         dial_freq = dec["dial_freq"]
@@ -492,6 +497,7 @@ class Js8Decoder:
     js8FrameProc: Js8FrameProcessor = None
 
     def __init__(self, mode_conf: ModeConfig, aprsReporter:APRSReporter):
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
         self.mode_conf = mode_conf
         self.js8Parser = Js8Parser(self.mode_conf.freq_khz, "usb")
         self.js8FrameProc = Js8FrameProcessor(aprsReporter)
@@ -503,7 +509,7 @@ class Js8Decoder:
         freq_khz = self.mode_conf.freq_khz
         mode = self.mode_conf.submode['name']
 
-        logger.info(f"Starting js8Decoder process for Freq: [{freq_khz}] kHz Mode: [{mode}] Folder: [{self.mode_conf.mode_rec_dir}]." )
+        self.logger.info(f"Starting js8Decoder process for Freq: [{freq_khz}] kHz Mode: [{mode}] Folder: [{self.mode_conf.mode_rec_dir}]." )
 
         files = findFile(self.mode_conf.mode_rec_dir, r"\.wav$", 2)
 
@@ -516,14 +522,14 @@ class Js8Decoder:
                 "-t", self.mode_conf.mode_tmp_dir, 
             ]
 
-        logger.info(f"Processing [{len(files)}] recordings for Freq: [{freq_khz}] kHz  Submode: [{mode}]....")
+        self.logger.info(f"Processing [{len(files)}] recordings for Freq: [{freq_khz}] kHz  Submode: [{mode}]....")
         for wav_fn in files:
             src_fn = f"{self.mode_conf.mode_rec_dir}/{wav_fn}"
             decode_fn = f"{wav_fn}.decode"
             decode_ffp = f"{self.mode_conf.mode_dec_dir}/{decode_fn}"
             decode_err_ffp = f"{self.mode_conf.mode_dec_dir}/error/{decode_fn}.error"
 
-            logger.debug(f"JS8 decoding process started for file: [{src_fn}].")
+            self.logger.debug(f"JS8 decoding process started for file: [{src_fn}].")
 
             cmd = base_cmd + [src_fn]
 
@@ -539,7 +545,7 @@ class Js8Decoder:
                 ret_code = process.wait()
 
             if (ret_code and (ret_code != 0)):
-                logger.error(f"Failed to decode wav file: {src_fn}  ReturnCode: [{ret_code}].") 
+                self.logger.error(f"Failed to decode wav file: {src_fn}  ReturnCode: [{ret_code}].") 
                 os.rename(decode_ffp, f"{self.mode_conf.mode_dec_error_dir}/{decode_fn}")
             else: 
                 tmp_decode_ffp = f"{self.mode_conf.mode_dec_proc_dir}/{decode_fn}"
@@ -550,7 +556,7 @@ class Js8Decoder:
                 parsedMsgs = self.js8Parser.processJs8DecodeFile(tmp_decode_ffp, None)
 
                 if (parsedMsgs and (len(parsedMsgs) > 0)):
-                    logger.debug(f"Decode file: [{tmp_decode_ffp}] contained [{len(parsedMsgs)}] messages.")
+                    self.logger.debug(f"Decode file: [{tmp_decode_ffp}] contained [{len(parsedMsgs)}] messages.")
                     os.rename(tmp_decode_ffp, f"{self.mode_conf.mode_dec_proc_dir}/{decode_fn}")
                 else:
                     # Contrain no decoded message remove it
@@ -580,21 +586,21 @@ class Js8Decoder:
             #   os.rename(src_fn, f"{self.mode_conf.mode_rec_proc_dir}/{wav_fn}")
             os.remove(src_fn)
 
-            logger.debug(f"-- JS8 decoding process completed for file: [{src_fn}].")
+            self.logger.debug(f"-- JS8 decoding process completed for file: [{src_fn}].")
 
-        logger.info(f"Completed processing [{len(files)}] recordings for Freq: [{freq_khz}] khz  Submode: [{mode}].")
+        self.logger.info(f"Completed processing [{len(files)}] recordings for Freq: [{freq_khz}] khz  Submode: [{mode}].")
 
         return 0;
 
 
     def start(self):
-        logger.info(f"Js8Decoder handler prcessor started for Freq: [{self.mode_conf.freq_khz}] khz SubMode: [{self.mode_conf.submode['name']}]")
+        self.logger.info(f"Js8Decoder handler prcessor started for Freq: [{self.mode_conf.freq_khz}] khz SubMode: [{self.mode_conf.submode['name']}]")
 
         while True:
 
             self.decoding_process()
 
-            logger.info(f"Sleeping for 15secs ...")
+            self.logger.info(f"Sleeping for 15secs ...")
             time.sleep(15)
 
 
@@ -619,6 +625,7 @@ class Js8DecodingControl:
 
     
     def __init__(self, freq_list=FREQ_LIST, submodes=SUBMODES_BYNAME, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR, aprsReporter:APRSReporter=None):
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
         self.set_data_dir(data_dir)
         self.set_freq_list(freq_list)
         self.set_submodes(submodes)
@@ -642,7 +649,7 @@ class Js8DecodingControl:
         self.freq_list = []
         for freq in freq_list:
             if freq not in FREQ_LIST:
-                logger.error(f"Invalid frequency: [{freq}] - Please select value from: [{FREQ_LIST}] kHz.")
+                self.logger.error(f"Invalid frequency: [{freq}] - Please select value from: [{FREQ_LIST}] kHz.")
                 sys.exit(-1)
 
             self.freq_list.append(freq)
@@ -652,7 +659,7 @@ class Js8DecodingControl:
         self.submodes = []
         for submode in submodes:
             if submode not in SUBMODES_LOOKUP:
-                logger.error(f"Invalid submode: [{submode}] - Please select value from: [{SUBMODES_BYNAME}] kHz.")
+                self.logger.error(f"Invalid submode: [{submode}] - Please select value from: [{SUBMODES_BYNAME}] kHz.")
                 sys.exit(-1)
 
             self.submodes.append(SUBMODES_LOOKUP[submode])
@@ -687,35 +694,35 @@ class Js8DecodingControl:
         return rec
 
     def checkStatusDecoder(self, pid):
-        logger.info(f"Status for js8Decoder process PID: {pid}")
+        self.logger.info(f"Status for js8Decoder process PID: {pid}")
 
         try:
             process = psutil.Process(pid)
-            logger.info(f"Process with PID {pid}:")
-            logger.info(f"  Name: {process.name()}")
-            logger.info(f"  Status: {process.status()}")
-            # logger.info(f"  CPU Percent: {process.cpu_percent(interval=1.0)}%")
-            # logger.info(f"  Memory Info: {process.memory_info()}")
-            logger.info(f"  Command Line: {' '.join(process.cmdline())}")
+            self.logger.info(f"Process with PID {pid}:")
+            self.logger.info(f"  Name: {process.name()}")
+            self.logger.info(f"  Status: {process.status()}")
+            # self.logger.info(f"  CPU Percent: {process.cpu_percent(interval=1.0)}%")
+            # self.logger.info(f"  Memory Info: {process.memory_info()}")
+            self.logger.info(f"  Command Line: {' '.join(process.cmdline())}")
 
             children = process.children(recursive=True)
             for child in children:
-                logger.info(f"  -- Child PID: {child.pid}, Name: {child.name()}, Status: {child.status()}")
+                self.logger.info(f"  -- Child PID: {child.pid}, Name: {child.name()}, Status: {child.status()}")
 
         except psutil.NoSuchProcess:
-            logger.warning(f"No process found with PID {pid}.")
+            self.logger.warning(f"No process found with PID {pid}.")
         except psutil.AccessDenied:
-            logger.error(f"Access denied to process with PID {pid}.")
+            self.logger.error(f"Access denied to process with PID {pid}.")
 
         return 0;
 
     def checkDecoders(self):
-        logger.info("Checking the status of the Decoding services...")
+        self.logger.info("Checking the status of the Decoding services...")
         
         rec = self.loadDecoderPid()
 
         if rec is not None and ('pid' not in rec):
-            logger.warning(f"  -- No decoder processes are running. nothing to do.")
+            self.logger.warning(f"  -- No decoder processes are running. nothing to do.")
             sys.exit(0)
 
         pid = rec['pid']
@@ -725,16 +732,16 @@ class Js8DecodingControl:
         return 0
 
     def stopDecoder(self, pid):
-        logger.info(f"Shutting down js8decoder process PID: {pid}.")
+        self.logger.info(f"Shutting down js8decoder process PID: {pid}.")
 
         try:
             # Send SIGTERM (graceful termination request)
             os.kill(pid, signal.SIGTERM) 
-            logger.info(f"  -- Sent SIGTERM to process with PID {pid}")
+            self.logger.info(f"  -- Sent SIGTERM to process with PID {pid}")
         except ProcessLookupError:
-            logger.warning(f"  -- ERROR: Process with PID {pid} not found.")
+            self.logger.warning(f"  -- ERROR: Process with PID {pid} not found.")
         except Exception as e:
-            logger.error(f"  -- ERROR: An error occurred: {e}")
+            self.logger.error(f"  -- ERROR: An error occurred: {e}")
 
         return 0;
 
@@ -754,12 +761,12 @@ class Js8DecodingControl:
 
 
     def stopDecoders(self):
-        logger.info("Stopping Decoding services...")
+        self.logger.info("Stopping Decoding services...")
         
         rec = self.loadDecoderPid()
         
         if rec is not None and ('pid' not in rec):
-            logger.warning(f"  -- No decoder processes are running. nothing to do.")
+            self.logger.warning(f"  -- No decoder processes are running. nothing to do.")
             sys.exit(0)
 
         pid = rec['pid']
@@ -773,12 +780,12 @@ class Js8DecodingControl:
     def startDecoders(self):
 
         
-        logger.info("Starting Recording services...")
+        self.logger.info("Starting Recording services...")
         
         rec = self.loadDecoderPid()
 
         if rec is not None and ('pid' in rec):
-            logger.warning(f"JS8 Decoding process PID: [{rec['pid']}] already started. Please review, perform a STOP then a START again.")
+            self.logger.warning(f"JS8 Decoding process PID: [{rec['pid']}] already started. Please review, perform a STOP then a START again.")
             sys.exit(-1)
 
         # Save current PPID
@@ -805,10 +812,10 @@ class Js8DecodingControl:
         rec = self.loadDecoderPid()
 
         if ((rec is not None) and ('pid' in rec) and (not print_only)):
-            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-callsign-history.")
+            self.logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-callsign-history.")
             sys.exit(0)
 
-        logger.info("Rebuilding callsign history log from 'all_parsed_decodes' files...")
+        self.logger.info("Rebuilding callsign history log from 'all_parsed_decodes' files...")
         
         callsign_hist_db_fn = f"{self.data_dir}/callsign_history.db"
         msgbyfreq_db_fn = f"{self.data_dir}/msgfreq.db"
@@ -827,15 +834,15 @@ class Js8DecodingControl:
                 mode_conf = ModeConfig(freq, submode, self.data_dir, self.mcast_addr)
                 
                 all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt"
-                logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+                self.logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
                 dec_msgs = loadJson(all_dec_fn)
                 
-                logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding callsign history...")
+                self.logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding callsign history...")
 
                 for dec in dec_msgs:
                     js8FrameProc.processFrame(dec)
                 
-                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}].")
+                self.logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}].")
 
         # Perform cleanup (ie move expired actvities to "msgbyfreq_db_incomplete")
         js8FrameProc.cleanup()    
@@ -856,7 +863,7 @@ class Js8DecodingControl:
             print(f"{json.dumps(dbs)}")
             
 
-        logger.info(f"Completed rebuilding callsign history DB: [{callsign_hist_db_fn}]")
+        self.logger.info(f"Completed rebuilding callsign history DB: [{callsign_hist_db_fn}]")
 
         return 0
 
@@ -866,10 +873,10 @@ class Js8DecodingControl:
         rec = self.loadDecoderPid()
 
         if ((rec is not None) and ('pid' in rec) and (not print_only)):
-            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-spots.")
+            self.logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-spots.")
             sys.exit(0)
 
-        logger.info("Rebuilding spot log from 'all_parsed_decodes' files...")
+        self.logger.info("Rebuilding spot log from 'all_parsed_decodes' files...")
         
         spots = []
 
@@ -882,17 +889,17 @@ class Js8DecodingControl:
                 js8_dec = Js8Decoder(mode_conf)
                 
                 all_dec_fn = f"{mode_conf.mode_data_dir}/all_parsed_decodes.txt"
-                logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+                self.logger.debug(f"Loading previously decoded messages from [{all_dec_fn}] for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
                 dec_msgs = loadJson(all_dec_fn)
                 
-                logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding spots...")
+                self.logger.debug(f"Loaded [{len(dec_msgs)}] decoded messages, rebuilding spots...")
 
                 for dec in dec_msgs:
                     spot = generateSpot(dec)
                     if (spot):
                         spots.append(f"{spot}\n")
                         
-                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]. Reported [{len(spots)}] new spots.")
+                self.logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]. Reported [{len(spots)}] new spots.")
 
         # arrange by timestamp, freq, .....
         spots.sort()
@@ -905,7 +912,7 @@ class Js8DecodingControl:
             for spot in spots:
                 print (spot, end="")
 
-        logger.info(f"Completed rebuilding spot log, located [{len(spots)}] spots.")
+        self.logger.info(f"Completed rebuilding spot log, located [{len(spots)}] spots.")
 
         return 0
 
@@ -914,11 +921,11 @@ class Js8DecodingControl:
         rec = self.loadDecoderPid()
 
         if ((rec is not None) and ('pid' in rec) and (not print_only)):
-            logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-alldecodes.")
+            self.logger.warning(f"  -- Decoder processes are running. Please stop all decoders before running rebuild-alldecodes.")
             sys.exit(0)
 
 
-        logger.info("Rebuilding 'all_parsed_decodes' by reparsing all archived JS8 decode files...")
+        self.logger.info("Rebuilding 'all_parsed_decodes' by reparsing all archived JS8 decode files...")
         
         for freq in self.freq_list:
             js8_parser = Js8Parser(freq, "usb")
@@ -945,7 +952,7 @@ class Js8DecodingControl:
                                 print(json.dumps(msg))
                             
 
-                logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
+                self.logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}]...")
 
         
                 if not print_only:
@@ -963,38 +970,38 @@ class Js8DecodingControl:
     #####################################################################    
 
     def stopRecorder(self, rec):
-        logger.info(f"Shutting down pcmrecord process Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}] PID: {rec['pid']}")
+        self.logger.info(f"Shutting down pcmrecord process Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}] PID: {rec['pid']}")
 
         pid = rec["pid"]
 
         try:
             # Send SIGTERM (graceful termination request)
             os.kill(rec['pid'], signal.SIGTERM) 
-            logger.info(f"  -- Sent SIGTERM to process with PID {pid}")
+            self.logger.info(f"  -- Sent SIGTERM to process with PID {pid}")
         except ProcessLookupError:
-            logger.warning(f"Process with PID {pid} not found.")
+            self.logger.warning(f"Process with PID {pid} not found.")
         except Exception as e:
-            logger.error(f"An error occurred: {e}")
+            self.logger.error(f"An error occurred: {e}")
 
         return 0;
 
     def checkStatusRecorder(self, rec):
-        logger.info(f"Status for pcmrecord process Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}] PID: {rec['pid']}")
+        self.logger.info(f"Status for pcmrecord process Freq: [{rec['freq_khz']}] Mode: [{rec['submode']}] PID: {rec['pid']}")
 
         pid = rec["pid"]
 
         try:
             process = psutil.Process(pid)
-            logger.info(f"Process with PID {pid}:")
-            logger.info(f"  Name: {process.name()}")
-            logger.info(f"  Status: {process.status()}")
-            # logger.info(f"  CPU Percent: {process.cpu_percent(interval=1.0)}%")
-            # logger.info(f"  Memory Info: {process.memory_info()}")
-            logger.info(f"  Command Line: {' '.join(process.cmdline())}")
+            self.logger.info(f"Process with PID {pid}:")
+            self.logger.info(f"  Name: {process.name()}")
+            self.logger.info(f"  Status: {process.status()}")
+            # self.logger.info(f"  CPU Percent: {process.cpu_percent(interval=1.0)}%")
+            # self.logger.info(f"  Memory Info: {process.memory_info()}")
+            self.logger.info(f"  Command Line: {' '.join(process.cmdline())}")
         except psutil.NoSuchProcess:
-            logger.warning(f"No process found with PID {pid}.")
+            self.logger.warning(f"No process found with PID {pid}.")
         except psutil.AccessDenied:
-            logger.error(f"Access denied to process with PID {pid}.")
+            self.logger.error(f"Access denied to process with PID {pid}.")
 
         return 0;
 
@@ -1031,7 +1038,7 @@ class Js8DecodingControl:
 
                 recs.append(rec)
 
-        logger.info(f"  - Loaded {len(recs)} records from recorder pids file: [{self.recorder_pids_file}].")
+        self.logger.info(f"  - Loaded {len(recs)} records from recorder pids file: [{self.recorder_pids_file}].")
 
         return recs
 
@@ -1056,18 +1063,18 @@ class Js8DecodingControl:
 
         writeStringsToFile(self.recorder_pids_file, pid_recs, False)
 
-        logger.info(f"Saved {len(recs)} records to recorder pids file: [{self.recorder_pids_file}].")
+        self.logger.info(f"Saved {len(recs)} records to recorder pids file: [{self.recorder_pids_file}].")
 
         return recs
 
 
     def startRecorders(self):
-        logger.info("Starting Recording services...")
+        self.logger.info("Starting Recording services...")
         
         recs = self.loadRecordPids()
         recs_cnt = len(recs)
         if (recs_cnt > 0):
-            logger.warning(f"There are {recs_cnt} PIDs already started. Please review, perform a STOP then a START again.")
+            self.logger.warning(f"There are {recs_cnt} PIDs already started. Please review, perform a STOP then a START again.")
             sys.exit(-1)
 
         recs = []
@@ -1088,13 +1095,13 @@ class Js8DecodingControl:
         
 
     def stopRecorders(self):
-        logger.info("Stopping Recording services...")
+        self.logger.info("Stopping Recording services...")
         
         recs = self.loadRecordPids()
 
         recs_cnt = len(recs)
         if (recs_cnt == 0):
-            logger.warning(f"There are 0 records running. nothing to do.")
+            self.logger.warning(f"There are 0 records running. nothing to do.")
             sys.exit(0)
 
         for rec in recs:
@@ -1105,13 +1112,13 @@ class Js8DecodingControl:
         return 0
 
     def checkRecorders(self):
-        logger.info("Checking the status of the Recording services...")
+        self.logger.info("Checking the status of the Recording services...")
         
         recs = self.loadRecordPids()
 
         recs_cnt = len(recs)
         if (recs_cnt == 0):
-            logger.warning(f"There are 0 records running. nothing to do.")
+            self.logger.warning(f"There are 0 records running. nothing to do.")
             sys.exit(0)
 
 
@@ -1190,7 +1197,7 @@ def main():
     aprsReporter = initAprsReporter(args)
     js8_dc = Js8DecodingControl(args.freq, args.sub_mode, args.data_dir, args.mcast_addr, aprsReporter=aprsReporter)
 
-    logger.info(f"Performing Process: [{args.process}] Action: [{args.action}]")
+    glogger.info(f"Performing Process: [{args.process}] Action: [{args.action}]")
 
     if (args.process == "record"):
         if args.action == "start":
@@ -1200,7 +1207,7 @@ def main():
         elif args.action == "status":
             js8_dc.checkRecorders()
         else:
-            logger.error(f"Unknown recording action: {args.command}")
+            glogger.error(f"Unknown recording action: {args.command}")
             parser.print_help()
 
     elif (args.process == "decode"):
@@ -1211,7 +1218,7 @@ def main():
         elif args.action == "status":
             js8_dc.checkDecoders()
         else:
-            logger.error(f"Unknown recording action: {args.command}")
+            glogger.error(f"Unknown recording action: {args.command}")
             parser.print_help()
 
     elif (args.process == "rebuild-spots"):
@@ -1224,7 +1231,7 @@ def main():
         js8_dc.rebuildCallsignHistory(args.print_only, aprsReporter=aprsReporter);
 
     else:
-        logger.error(f"Unknown process: {args.command} requested.")
+        glogger.error(f"Unknown process: {args.command} requested.")
         parser.print_help()
 
 

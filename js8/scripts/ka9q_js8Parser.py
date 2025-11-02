@@ -34,7 +34,7 @@ VALID_GROUP_CALLSIGN_REX=r"^[@][A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/
 
 GRID4_REX=r"^\w{2}\d{2}"
 
-logger = logging.getLogger(__name__)
+glogger = logging.getLogger(__name__)
 
 class Js8Parser:
 
@@ -47,6 +47,7 @@ class Js8Parser:
     #decodeMsgRegex = r"(?P<ts>\d{6})\s+(?P<snr>[+-]?\d{2})\s+(?P<dt>[+-]?\d{1,2}\.\d)\s+(?P<offset>\d{,4})\s+(?P<mode>\w)\s+(?P<msg>.*)\s+\d.*"
 
     def __init__(self, freq_khz=None, radio_mode=None, record_time=None):
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
         self.set_freq_khz(freq_khz)
         self.set_radio_mode(radio_mode)
         self.set_record_time(record_time)
@@ -212,7 +213,7 @@ class Js8Parser:
             return out
 
         except Exception as e:
-            logger.error(f"Error while parsing js8 message: [{msg}]. {e}")
+            self.logger.error(f"Error while parsing js8 message: [{msg}]. {e}")
             return None
 
 
@@ -310,7 +311,7 @@ def processArgs():
     args = parser.parse_args()
 
     if (args.decode_line and args.decode_file):
-        logger.warning("Warning: both MSG and FILE arguments provided, only file processing will be attempted.")
+        glogger.warning("Warning: both MSG and FILE arguments provided, only file processing will be attempted.")
         sys.exit(-1)
 
     return args
@@ -338,7 +339,7 @@ def main():
         #res = parser.processJs8DecodeLine(args.decode_line, record_time, args.freq)
         print (json.dumps(res))
     else:
-        logger.info("Nothing to do!  Did you specify either FILE or MSG option?")
+        glogger.info("Nothing to do!  Did you specify either FILE or MSG option?")
 
 if __name__ == "__main__":
     main()

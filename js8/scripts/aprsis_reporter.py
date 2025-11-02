@@ -22,7 +22,7 @@ DEFAULT_APRS_HOST="asia.aprs2.net"
 DEFAULT_APRS_PORT=14580
 DEFAULT_LOG_FN="./aprs_frames.log"
 
-logger = logging.getLogger(__name__)
+glogger = logging.getLogger(__name__)
 
 class APRSReporter:
 
@@ -38,6 +38,7 @@ class APRSReporter:
     AIS = None
 
     def __init__(self, reporter:str, user:str, passcode:str, reporting_enabled:bool=True, host:str=DEFAULT_APRS_HOST, port:int=DEFAULT_APRS_PORT, log_fn: str=DEFAULT_LOG_FN):
+        self.logger = logging.getLogger("%s.%s" % (__name__, self.__class__.__name__))
         self.reporter = reporter.upper()
         self.log_fn = log_fn
         self.aprs_reporting_enabled = reporting_enabled
@@ -46,7 +47,6 @@ class APRSReporter:
         self.aprs_user=user
         self.aprs_passcode=passcode
         self.AIS = aprslib.IS(callsign=user, passwd=passcode, host=host, port=port) 
-        self.AIS.connect()
 
 
     def grid2aprs(self, grid_locator: str):
@@ -111,10 +111,16 @@ class APRSReporter:
 
     def sendFrame(self, frame):
         
-        logger.info(f"APRS Frame: [{frame}] - APRS Reporting Enabled: [{self.aprs_reporting_enabled}]")
+        self.logger.info(f"APRS Frame: [{frame}] - APRS Reporting Enabled: [{self.aprs_reporting_enabled}]")
         if self.aprs_reporting_enabled:
             writeStringToFile(self.log_fn, f"{str(frame)}\n", True)
-            self.AIS.sendall(frame)
+            # TODO - Need to review this library to see if we do an initial connect, does it "keep-alive" ? or a min retry ?
+            #     I saw a msg come through and it did not make it to the APRSIS server. Maybe UDP vs TCP ?
+            self.AIS.connect()
+            try:
+                self.AIS.sendall(frame)
+            finally:
+                self.AIS.close()
 
 
     def reportAprsPosition(self, callsign: str, grid_locator:str, comment: str):
@@ -122,7 +128,6 @@ class APRSReporter:
         lat,lon = self.grid2aprs(grid_locator)
 
         # Format APRS Position report
-        # msg = f"{callsign_nosuffix}>APJ8CL,qAS,{reporter}:={lat}/{lon}G#{comment}"
         msg = f"={lat}/{lon}G#{comment}"
         self.reportAprsMessage(callsign, msg)
 
@@ -136,11 +141,11 @@ class APRSReporter:
         # Valid Message and send if ok
         try:
             packet = aprslib.parse(frame_msg)
-            logger.debug(f"APRS packet Parsed: [{packet}]")
+            self.logger.debug(f"APRS packet Parsed: [{packet}]")
 
             self.sendFrame(frame_msg)
         except (aprslib.ParseError, aprslib.UnknownFormat) as exp:
-            logger.error(f"Error parsing APRS packet msg:[{frame_msg}].  {exp}")
+            self.logger.error(f"Error parsing APRS packet msg:[{frame_msg}].  {exp}")
 
 
 #########################
@@ -155,11 +160,11 @@ def testAPRSPosition():
         aprsReporter.reportAprsPosition(callsign="VK4TAA/MM", grid_locator="QG62ms", comment="Testing APRSIS feed.")
 
     except aprslib.exceptions.LoginError as e:
-        logger.error(f"Login failed: {e}")
+        glogger.error(f"Login failed: {e}")
     except Exception as e:
-        logger.error(f"An error occurred: {e}")
+        glogger.error(f"An error occurred: {e}")
     finally:
-        logger.info("Disconnected from APRS-IS.")
+        glogger.info("Disconnected from APRS-IS.")
 
 
 # Main
