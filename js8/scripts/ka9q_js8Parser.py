@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 
 import sys
 import argparse
@@ -32,9 +32,7 @@ VALID_CALLSIGN_REX=r"^(([0-9]|[A-Z]){1,3}/)?([0-9][A-Z][0-9][A-Z]{1,3}|[A-Z]{2,2
 VALID_GROUP_CALLSIGN_REX=r"^[@][A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}[\/]?[A-Z0-9\/]{0,3}"
 #VALID_GROUP_CALLSIGN_REX=r"^@([0-9]|[A-Z]){3,}.*"
 
-
 GRID4_REX=r"^\w{2}\d{2}"
-
 
 logger = logging.getLogger(__name__)
 
@@ -124,7 +122,7 @@ class Js8Parser:
                 "record_time": fmt_dt,
                 "mode": "JS8",
                 "dial_freq": self.freq_hz,
-                "offset": frame.freq,
+                "offset": int(frame.freq),
                 "freq": self.freq_hz + frame.freq,
                 "thread_type": frame.thread_type,
                 "js8mode": frame.mode,

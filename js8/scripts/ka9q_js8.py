@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python
 
 ################################################################################
 ##
@@ -20,17 +20,21 @@ import logging
 import psutil
 import os
 import re
-import shutil
 import signal
+import shutil
 import subprocess
 import sys
 import threading
 import time
 import uuid
 
+from aprsis_reporter import APRSReporter, DEFAULT_APRS_PORT, DEFAULT_APRS_HOST
 from datetime import datetime, timezone
 from pathlib import Path
 from ka9q_js8Parser import Js8Parser
+from ka9q_js8Utils import logError, isEmpty, findFile, truncateFile, \
+        archiveFile, writeStringsToFile, writeStringToFile, appendJson, loadJson, \
+        ARCHIVE_METHOD_MOVE, ARCHIVE_METHOD_TRUNCATE
 
 DEFAULT_DATA_DIR="./data"
 DEFAULT_MCAST_ADDR="js8-pcm.local"
@@ -63,9 +67,7 @@ data_dir = DEFAULT_DATA_DIR
 
 DEFAULT_DECODE_DEPTH = 3
 
-ARCHIVE_METHOD_MOVE="AMM"
-ARCHIVE_METHOD_TRUNCATE="AMT"
-
+APRSIS_CMD_REX = r"(?P<callsign>[\w\a/]+): @APRSIS ((GRID\s)?(?P<grid>[\w\d]+)$)?((CMD\s)?(?P<cmd_msg>:[@\-\.\d\w]+[ ]+:[@\-\.\d\w]+[ ]+.*$))?"
 
 # Configure basic logging to a file and the console
 logging.basicConfig(
@@ -205,16 +207,294 @@ class Js8Recorder:
 
 
 #################################################################################
+# Js8FrameProcessor Class
+#################################################################################
+
+class Js8FrameProcessor:
+
+    aprsReporter: APRSReporter
+
+    callsigns = {}
+    msgByFreq = {}
+    msgByFreq_incomplete = {}
+
+    def __init__(self, aprsReporter:APRSReporter):
+        self.aprsReporter = aprsReporter
+
+    def archiveExpired(self):
+        # Move "expired" activity over to msgByFreq_incomplete to keep our callsign history clean
+        for dial_freq in self.msgByFreq.keys():
+
+            msgs = self.msgByFreq[dial_freq]
+            msgs_copy = self.msgByFreq[dial_freq][:]
+
+            incomp_msgs = self.msgByFreq_incomplete[dial_freq]
+
+            # Iterate throug ah copy of the msgs, move the activity over to msgByFreq_incomplete
+            for act_rec in msgs_copy:
+                if act_rec["is_expired"]:
+                     incomp_msgs.append(act_rec)
+                     msgs.remove(act_rec)
+
+    def cleanup(self):
+        self.archiveExpired()
+
+    def reportCommandMessageAPRSIS(self, callsign:str, msg:str):
+        if (isEmpty(callsign)):
+            logger.error(f"APRIS position report request contains empty Callsign.")
+            return
+        
+        if (isEmpty(msg)):
+            logger.error(f"APRIS position report request contains empty Message.")
+            return
+
+        if (self.aprsReporter is not None):
+            self.aprsReporter.reportAprsMessage(callsign, msg)
+
+
+    def reportPositionAPRSIS(self, aprs_callsign:str, aprs_grid:str, freq_mhz: float, snr: int):
+        if (isEmpty(aprs_callsign)):
+            logger.error(f"APRIS position report request contains empty Callsign.")
+            return
+
+        if (isEmpty(aprs_grid)):
+            logger.error(f"APRIS position report request for Callsign: [{aprs_callsign}] has an invalid locator: [{aprs_grid}]")
+            return
+
+        comment = f"JS8 {aprs_callsign} {freq_mhz:.06f}MHz {snr:+03d}dB"
+        if (self.aprsReporter is not None):
+            self.aprsReporter.reportAprsPosition(aprs_callsign, aprs_grid, comment)
+
+
+    def processAPRSIS(self, act_rec: dict):
+
+        # callsign = act_rec["callsign"]
+        # locator = act_rec["locator"]
+        freq_hz = act_rec["freq"]
+        freq_mhz = freq_hz/1000000
+        msg = act_rec["full_msg"]
+        snr = int(act_rec["snr"])
+
+        if (self.aprsReporter is None):
+            logger.warning(f"Received APRIS message: [{msg}], skipping as APRSIS reporting is not enabled.")
+            return
+
+        # Handles following possbile
+        #  - <callsign> @APRIS ([[GRID] <grid>] | [[CMD] :<cs_from> :<cs_to>]
+        match = re.match(APRSIS_CMD_REX, msg)
+
+        if (match is None):
+            logger.error(f"Malformed APRSIS message: [{msg}]")
+
+        callsign = match.group("callsign")
+        grid = match.group("grid")
+        cmd_msg = match.group("cmd_msg")
+
+        if (not isEmpty(callsign) and not isEmpty(grid)):
+            callsign = match.group("callsign")
+            grid = match.group("grid")
+            self.reportPositionAPRSIS(callsign, grid, freq_mhz, snr)
+
+        elif (not isEmpty(callsign) and not isEmpty(cmd_msg)):
+            self.reportCommandMessageAPRSIS(callsign, cmd_msg)
+
+        else:
+            logger.error(f"Invalid @APRIS message: [{msg}] - skipped.")
+
+    def processFrame(self, dec: dict):
+        dial_freq = dec["dial_freq"]
+        offset = dec["offset"]
+
+        if dec["is_valid"]:
+            
+            if (dial_freq not in self.msgByFreq):
+                band_act_recs = []
+                self.msgByFreq[dial_freq] = band_act_recs
+                self.msgByFreq_incomplete[dial_freq] = []
+            else:
+                band_act_recs = self.msgByFreq[dial_freq]
+
+            #scan for activity +/-10hz
+            act_rec = None
+            for rec in band_act_recs:
+                
+                # I know the JS8 spec will print traffic +/-10Hz, but for now assume as +/- 3 as we are performing avergaing so should track
+                # BW=10
+                BW=3
+                # TODO: Do I need to filter / be "mode" specific aswell ??
+                if (((rec["offset"] - BW) <= offset <= (rec["offset"] + BW)) and 
+                    ((abs(dec["timestamp"] - rec["first_ts"]) <= 60) or (abs(dec["timestamp"] - rec["last_ts"]) <= 60))):
+                    act_rec = rec
+
+                    # TODO: any more smarts to consider here ?
+                    break
+
+                else:
+                    # lets see if incomplete activity which has not seen a "start" (seen_first) frame has expired. If it has mark it expired and will be purged later
+                    if (((not rec["seen_first"]) or (not rec["seen_last"])) and 
+                        (not rec["is_complete"]) and 
+                        (not rec["is_expired"]) and 
+                        (abs(rec["last_ts"] - dec["timestamp"]) > 60)):
+                        rec["is_expired"] = True
+
+
+            if act_rec is None:
+                # TODO: Review if seend (first/last) needed here yet.
+                # offset will be a running average 
+                act_rec = {"offset": offset, "first_ts": dec["timestamp"], "last_ts": dec["timestamp"],
+                           "seen_first": False, "seen_last": False, "offset_total": offset, 
+                           "is_complete": False, "is_expired": False, 
+                           "id": str(uuid.uuid4()), "msgs": [dec],
+                           # These will be populated upon "completeness"
+                           "timestamp": None,"callsign": None, "locator": None, "freq": None, "full_msg": None, "snr": None}
+                band_act_recs.append(act_rec)                            
+                
+            else:
+
+                act_rec["msgs"].append(dec)
+                # Handle if msgs out of order during processing
+                if (dec["timestamp"] < act_rec["first_ts"]):
+                    act_rec["first_ts"] = dec["timestamp"]
+                if (dec["timestamp"] > act_rec["last_ts"]):
+                    act_rec["last_ts"] = dec["timestamp"]
+                act_rec["offset_total"] += dec["offset"]
+                act_rec["offset"] = int(act_rec["offset_total"] / len(act_rec["msgs"]))
+
+            # Check if we have just encounter first / last / only expected frame
+            frame_class = dec["frame_class"]
+            thread_type = int(dec["thread_type"])
+
+            if ((not act_rec["is_complete"]) and (not act_rec["is_expired"])):
+
+                ## Single Js8FrameDirected Frames
+                if ((frame_class in ["Js8FrameDirected", "Js8FrameHeartbeat"])
+                    and (thread_type == 3)):
+                    act_rec["seen_first"] = True
+                    act_rec["seen_last"] = True
+                    act_rec["is_complete"] = True
+                    if (act_rec["locator"] is None) and (dec["locator"] is not None):
+                        act_rec["locator"] = dec["locator"]
+
+
+                # Js8FrameDirected / Js8FrameDataCompressed
+                elif ((frame_class == "Js8FrameDirected") and (thread_type == 1)):
+                    act_rec["seen_first"] = True
+                elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 0)):
+                    # in the middle 
+                    pass
+                elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 2)):
+                    act_rec["seen_last"] = True
+                    if (act_rec["seen_first"]):
+                        act_rec["is_complete"] = True
+                
+                # Js8FrameDirected / Js8FrameData
+                elif ((frame_class == "Js8FrameData") and (thread_type == 0)):
+                    # in the middle 
+                    pass
+                elif ((frame_class == "Js8FrameData") and (thread_type == 2)):
+                    act_rec["seen_last"] = True
+                    if (act_rec["seen_first"]):
+                        act_rec["is_complete"] = True
+
+                ## Js8FrameCompound / Js8FrameCompoundDirected and Js8FrameCompoundCompressed
+                elif ((frame_class == "Js8FrameCompound") and (thread_type == 1)):
+                    act_rec["seen_first"] = True
+                    if (act_rec["locator"] is None) and (dec["locator"] is not None):
+                        act_rec["locator"] = dec["locator"]
+                elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 0)):
+                    # in the middle 
+                    pass
+                elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 2)):
+                    act_rec["seen_last"] = True
+                    if (act_rec["seen_first"]):
+                        act_rec["is_complete"] = True
+                
+                else:
+                    # TODO: Review and confirm 
+                    dec["is_valid"] = False
+                    ve = dec["validation_errors"]
+                    ve["unexepected_frame"] = True
+
+                #
+                # If now complete do the following
+                #   TODO: if complete should we remove all dec that are "invalid" ?
+                if act_rec["is_complete"]:
+                    full_msg = ""
+                    callsign = None
+                    timestamp = None
+                    snr = None
+                    prev_thread_type = None
+                    for msg in act_rec["msgs"]:
+                        if (msg["is_valid"]):
+                            l_thread_type = msg["thread_type"]
+                            l_frame_class = msg["frame_class"]
+                            # concat all valid messages with a space
+                            if (msg["msg"] is not None):
+                                full_msg = full_msg + msg["msg"]
+                                if (l_frame_class in ["Js8FrameCompound","Js8FrameCompoundDirected"]):
+                                    full_msg = full_msg + " "
+
+                            # Grab first valid callsign
+                            if (msg["callsign"] is not None) and (callsign is None):
+                                callsign = msg["callsign"]
+
+                            # Grab first valid timestamp
+                            if (timestamp is None and msg["timestamp"] is not None):
+                                timestamp = msg["timestamp"]
+
+                            if (snr is None and msg["db"] is not None):
+                                snr = msg["db"]
+
+                            prev_thread_type = thread_type
+
+
+                    act_rec["callsign"] = callsign
+                    act_rec["full_msg"] = full_msg
+                    act_rec["timestamp"] = timestamp
+                    act_rec["snr"] = snr
+                    act_rec["freq"] = dial_freq + act_rec["offset"]
+
+                    # Add / link to callsign_db
+                    if callsign in self.callsigns:
+                        cs_rec = self.callsigns[callsign]
+
+                    else:
+                        #cs_rec = {"last_freq": (dial_freq+act_rec["offset"]), "last_ts": timestamp, "activity": []}
+                        cs_rec = {"last_freq": dial_freq, "last_ts": timestamp, "activity": []}
+                        self.callsigns[callsign] = cs_rec
+
+                    cs_rec["activity"].append(act_rec)
+
+                    # Process JS8 "@" Commands
+                    if ("@APRSIS" in act_rec["full_msg"]):
+                        self.processAPRSIS(act_rec)
+                        
+
+
+            # else:
+            #     # TODO: Review and confirm 
+            #     dec["is_valid"] = False
+            #     ve = dec["validation_errors"]
+            #     ve["unexepected_frame_after_end"] = True
+            
+
+            # cs_rec = callsigns[]
+            # callsigns.append(cs_rec)  
+
+
+#################################################################################
 # Js8Decoder Class
 #################################################################################
 
 class Js8Decoder:
     mode_conf: ModeConfig = None
     js8Parser: Js8Parser = None
+    js8FrameProc: Js8FrameProcessor = None
 
-    def __init__(self, mode_conf: ModeConfig):
+    def __init__(self, mode_conf: ModeConfig, aprsReporter:APRSReporter):
         self.mode_conf = mode_conf
         self.js8Parser = Js8Parser(self.mode_conf.freq_khz, "usb")
+        self.js8FrameProc = Js8FrameProcessor(aprsReporter)
 
     def decoding_process(self):
 
@@ -281,6 +561,9 @@ class Js8Decoder:
                 # Handle Spots
                 spots = []
                 for msg in parsedMsgs:
+
+                    self.js8FrameProc.processFrame(msg)
+
                     spot = generateSpot(msg)
                     if (spot is not None):
                         spots.append(f"{spot}\n")
@@ -312,192 +595,7 @@ class Js8Decoder:
             self.decoding_process()
 
             logger.info(f"Sleeping for 15secs ...")
-            time.sleep(15)       
-
-
-
-class Js8FrameProcessor:
-    
-    callsigns = {}
-    msgByFreq = {}
-    msgByFreq_incomplete = {}
-
-    def __init__(self):
-        pass
-
-    def archiveExpired(self):
-        # Move "expired" activity over to msgByFreq_incomplete to keep our callsign history clean
-        for dial_freq in self.msgByFreq.keys():
-
-            msgs = self.msgByFreq[dial_freq]
-            msgs_copy = self.msgByFreq[dial_freq][:]
-
-            incomp_msgs = self.msgByFreq_incomplete[dial_freq]
-
-            # Iterate throug ah copy of the msgs, move the activity over to msgByFreq_incomplete
-            for act_rec in msgs_copy:
-                if act_rec["is_expired"]:
-                     incomp_msgs.append(act_rec)
-                     msgs.remove(act_rec)
-
-    def cleanup(self):
-        self.archiveExpired()
-        
-
-    def processFrame(self, dec: dict):
-        dial_freq = str(dec["dial_freq"])
-        offset = dec["offset"]
-
-        if dec["is_valid"]:
-            
-            if (dial_freq not in self.msgByFreq):
-                band_act_recs = []
-                self.msgByFreq[dial_freq] = band_act_recs
-                self.msgByFreq_incomplete[dial_freq] = []
-            else:
-                band_act_recs = self.msgByFreq[dial_freq]
-
-            #scan for activity +/-10hz
-            act_rec = None
-            for rec in band_act_recs:
-                
-                # I know the JS8 spec will print traffic +/-10Hz, but for now assume as +/- 3 as we are performing avergaing so should track
-                # BW=10
-                BW=3
-                # TODO: Do I need to filter / be "mode" specific aswell ??
-                if (((rec["offset"] - BW) <= offset <= (rec["offset"] + BW)) and 
-                    ((abs(dec["timestamp"] - rec["first_ts"]) <= 60) or (abs(dec["timestamp"] - rec["last_ts"]) <= 60))):
-                    act_rec = rec
-
-                    # TODO: any more smarts to consider here ?
-                    break
-
-                else:
-                    # lets see if incomplete activity which has not seen a "start" (seen_first) frame has expired. If it has mark it expired and will be purged later
-                    if ((not rec["seen_first"]) or (not rec["seen_last"])) and (not rec["is_complete"]) and (not rec["is_expired"]) and (abs(rec["last_ts"] - dec["timestamp"]) > 60):
-                        rec["is_expired"] = True
-
-
-            if act_rec is None:
-                # TODO: Review if seend (first/last) needed here yet.
-                # offset will be a running average 
-                act_rec = {"offset": offset, "first_ts": dec["timestamp"], "last_ts": dec["timestamp"], "seen_first": False, "seen_last": False, "offset_total": offset, "is_complete": False, "is_expired": False, "id": str(uuid.uuid4()), "msgs": [dec]}
-                band_act_recs.append(act_rec)                            
-                
-            else:
-
-                act_rec["msgs"].append(dec)
-                # Handle if msgs out of order during processing
-                if (dec["timestamp"] < act_rec["first_ts"]):
-                    act_rec["first_ts"] = dec["timestamp"]
-                if (dec["timestamp"] > act_rec["last_ts"]):
-                    act_rec["last_ts"] = dec["timestamp"]
-                act_rec["offset_total"] += dec["offset"]
-                act_rec["offset"] = int(act_rec["offset_total"] / len(act_rec["msgs"]))
-
-            # Check if we have just encounter first / last / only expected frame
-            frame_class = dec["frame_class"]
-            thread_type = int(dec["thread_type"])
-
-            if ((not act_rec["is_complete"]) and (not act_rec["is_expired"])):
-
-                ## Single Js8FrameDirected Frames
-                if ((frame_class == "Js8FrameDirected") and (thread_type == 3)):
-                    act_rec["seen_first"] = True
-                    act_rec["seen_last"] = True
-                    act_rec["is_complete"] = True
-
-                # Js8FrameDirected / Js8FrameDataCompressed
-                elif ((frame_class == "Js8FrameDirected") and (thread_type == 1)):
-                    act_rec["seen_first"] = True
-                elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 0)):
-                    # in the middle 
-                    pass
-                elif ((frame_class == "Js8FrameDataCompressed") and (thread_type == 2)):
-                    act_rec["seen_last"] = True
-                    if (act_rec["seen_first"]):
-                        act_rec["is_complete"] = True
-                
-                # Js8FrameDirected / Js8FrameData
-                elif ((frame_class == "Js8FrameData") and (thread_type == 0)):
-                    # in the middle 
-                    pass
-                elif ((frame_class == "Js8FrameData") and (thread_type == 2)):
-                    act_rec["seen_last"] = True
-                    if (act_rec["seen_first"]):
-                        act_rec["is_complete"] = True
-
-                ## Js8FrameCompound / Js8FrameCompoundDirected and Js8FrameCompoundCompressed
-                elif ((frame_class == "Js8FrameCompound") and (thread_type == 1)):
-                    act_rec["seen_first"] = True
-                elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 0)):
-                    # in the middle 
-                    pass
-                elif ((frame_class == "Js8FrameCompoundDirected") and (thread_type == 2)):
-                    act_rec["seen_last"] = True
-                    if (act_rec["seen_first"]):
-                        act_rec["is_complete"] = True
-                
-                else:
-                    # TODO: Review and confirm 
-                    dec["is_valid"] = False
-                    ve = dec["validation_errors"]
-                    ve["unexepected_frame"] = True
-
-                #
-                # If now complete do the following
-                #   TODO: if complete should we remove all dec that are "invalid" ?
-                if act_rec["is_complete"]:
-                    full_msg = ""
-                    callsign = None
-                    timestamp = None
-                    prev_thread_type = None
-                    for msg in act_rec["msgs"]:
-                        if (msg["is_valid"]):
-                            l_thread_type = msg["thread_type"]
-                            l_frame_class = msg["frame_class"]
-                            # concat all valid messages with a space
-                            if (msg["msg"] is not None):
-                                full_msg = full_msg + msg["msg"]
-                                if (l_frame_class in ["Js8FrameCompound","Js8FrameCompoundDirected"]):
-                                    full_msg = full_msg + " "
-
-                            # Grab first valid callsign
-                            if (msg["callsign"] is not None) and (callsign is None):
-                                callsign = msg["callsign"]
-
-                            # Grab first valid timestamp
-                            if (timestamp is None and msg["timestamp"] is not None):
-                                timestamp = msg["timestamp"]
-
-                            prev_thread_type = thread_type
-
-
-                    act_rec["callsign"] = callsign
-                    act_rec["full_msg"] = full_msg
-                    act_rec["timestamp"] = timestamp
-
-                    # Add / link to callsign_db
-                    if callsign in self.callsigns:
-                        cs_rec = self.callsigns[callsign]
-
-                    else:
-                        #cs_rec = {"last_freq": (dial_freq+act_rec["offset"]), "last_ts": timestamp, "activity": []}
-                        cs_rec = {"last_freq": dial_freq, "last_ts": timestamp, "activity": []}
-                        self.callsigns[callsign] = cs_rec
-
-                    cs_rec["activity"].append(act_rec)
-
-
-            # else:
-            #     # TODO: Review and confirm 
-            #     dec["is_valid"] = False
-            #     ve = dec["validation_errors"]
-            #     ve["unexepected_frame_after_end"] = True
-            
-
-            # cs_rec = callsigns[]
-            # callsigns.append(cs_rec)  
+            time.sleep(15)
 
 
 ################################################################################
@@ -517,12 +615,16 @@ class Js8DecodingControl:
     recorder_pids_file = None
     decoder_threads = []
 
+    aprsReporter:APRSReporter
+
     
-    def __init__(self, freq_list=FREQ_LIST, submodes=SUBMODES_BYNAME, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR):
+    def __init__(self, freq_list=FREQ_LIST, submodes=SUBMODES_BYNAME, data_dir: str=DEFAULT_DATA_DIR, mcast_addr:str=DEFAULT_MCAST_ADDR, aprsReporter:APRSReporter=None):
         self.set_data_dir(data_dir)
         self.set_freq_list(freq_list)
         self.set_submodes(submodes)
         self.mcast_addr = mcast_addr
+
+        self.aprsReporter = aprsReporter
         
     def set_data_dir(self, data_dir: str):
         self.data_dir = data_dir
@@ -688,7 +790,7 @@ class Js8DecodingControl:
                 # Create a Decoder Hanlding thread.
                 #dh_thread = threading.Thread(target=js8DecoderHandler, args=(freq, submode,), daemon=True)
                 mode_conf = ModeConfig(freq, submode, self.data_dir, self.mcast_addr)
-                js8_dec = Js8Decoder(mode_conf)
+                js8_dec = Js8Decoder(mode_conf, self.aprsReporter)
                 dh_thread = threading.Thread(target=js8_dec.start, args=())
                 dh_thread.start()
                 #dh_thread.join()
@@ -699,7 +801,7 @@ class Js8DecodingControl:
     ## Utility Related functions
     #####################################################################    
 
-    def rebuildCallsignHistory(self, print_only: bool=True):
+    def rebuildCallsignHistory(self, print_only: bool=True, aprsReporter:APRSReporter=None):
         rec = self.loadDecoderPid()
 
         if ((rec is not None) and ('pid' in rec) and (not print_only)):
@@ -712,7 +814,10 @@ class Js8DecodingControl:
         msgbyfreq_db_fn = f"{self.data_dir}/msgfreq.db"
         msgbyfreq_incomplete_db_fn = f"{self.data_dir}/msgfreq_incomplete.db"
 
-        js8FrameProc = Js8FrameProcessor()
+        # !!IMPORTANT!! 
+        #    Only use aprsReporter during rebuild if debugging and issue. We DO NOT want to flood APRSIS / resend duplicates.
+        js8FrameProc = Js8FrameProcessor(aprsReporter=aprsReporter)
+        # js8FrameProc = Js8FrameProcessor(aprsReporter=None)
 
         for freq in self.freq_list:
             for submode in self.submodes:
@@ -732,12 +837,8 @@ class Js8DecodingControl:
                 
                 logger.info(f"Completed processing [{len(dec_msgs)}] decode messages for Freq: [{mode_conf.freq_khz}] kHz  Submode: [{mode_conf.submode['name']}].")
 
+        # Perform cleanup (ie move expired actvities to "msgbyfreq_db_incomplete")
         js8FrameProc.cleanup()    
-
-        # Now sort each set of bands actvities (ie offset, timestamp)
-        # for band_recs in js8FrameProc.msgByFreq:
-        #      band_recs.sort()
-        
 
         if not print_only:
             archiveFile(callsign_hist_db_fn, f"{self.archive_dir}/callsign_hist_db", ARCHIVE_METHOD_TRUNCATE)
@@ -750,7 +851,7 @@ class Js8DecodingControl:
             dbs = {
                 "callsign_hist_db": js8FrameProc.callsigns,
                 "msgbyfreq_db": js8FrameProc.msgByFreq,
-                "msgbyfreq_db_incomplete": js8FrameProc.msgByFreq
+                "msgbyfreq_db_incomplete": js8FrameProc.msgByFreq_incomplete
             }
             print(f"{json.dumps(dbs)}")
             
@@ -1024,109 +1125,11 @@ class Js8DecodingControl:
 ## Helper / Utils functions
 #################################################################################
 
-def truncateFile(fn):
-    with open(fn, 'w') as f:
-        pass 
-
-def archiveFile(fn:str, archiveDir: str=None, archiveMethod: str=ARCHIVE_METHOD_MOVE):
-
-    try:
-        now = datetime.now()
-        dt_suffix = datetime.now().strftime("%Y%m%d_%H%M%S.%f")[:-3]
-
-        if os.path.exists(fn):
-            
-            fn_path, fn_base = os.path.split(fn)
-            tmp_fn = f"{fn_base}.{dt_suffix}"
-            
-            if ((archiveDir is not None) and (archiveDir != '')):
-                Path(archiveDir).mkdir(parents=True, exist_ok=True)
-                src=fn
-                dest=f"{archiveDir}/{tmp_fn}"
-            else:
-                src=fn
-                dest=f"{fn_path}/{tmp_fn}"
-
-            if (archiveMethod == ARCHIVE_METHOD_TRUNCATE):
-                # To preserve file perms we COPY original to destination then trucate the existing file.
-                shutil.copy(src, dest)
-                truncateFile(fn)
-            else:
-                # Move original and allow process to create new file
-                shutil.move(src, dest)
-
-    except Exception as e:
-        logger.error(f"Failed to archive file: [{fn}] to folder: [{archiveDir}] {e}")
-
-
-def writeStringsToFile(out_fn: str, str_list: list, append: bool=True):
-    wmode = "w"
-    if (append == True):
-        wmode ="a"
-
-    with open(out_fn, wmode) as file:                    
-            for item in str_list:
-                if (item is not None):
-                    file.write(item)
-
-    return 0
-
-def writeStringToFile(out_fn: str, item: str, append: bool=True):
-    wmode = "w"
-    if append:
-        wmode ="a"
-
-    with open(out_fn, wmode) as file:                    
-            file.write(item)
-
-    return 0
-
-def appendJson(parsedMsgs, log_fn):
-    with open(log_fn, 'a') as file:
-
-        for msg in parsedMsgs:
-            file.write(f"{json.dumps(msg)}\n")
-
-def loadJson(log_fn):
-    msgs = []
-    with open(log_fn, 'r') as file:
-
-        for line in file:
-            try:
-                msgs.append(json.loads(line))
-            except json.JSONDecodeError:
-                logger.warning(f"Invalid decode message: [{line}] ignored.")
-
-    return msgs
-
 def generateSpot(dec):
-        if (dec["spot"]):    
+        if (dec["spot"] and dec["is_valid"]):
             return f"{dec['record_time']} {dec['db']:>5} {dec['dt']:>4} {dec['js8mode']} {dec['freq']/1000000:>9} {dec['callsign']:>9} {dec['locator']:>4} ~ {dec['msg']}"
 
         return None
-
-
-def findFile(dirss, re_pat, age_secs, sort:bool=True):
-    curr_time = time.time();
-
-    files = []
-
-    with os.scandir(dirss) as listOfEntries:
-        for entry in listOfEntries:
-            # If regex pattern provide only include file if it matches
-            if (re_pat):
-                res = re.search(re_pat, entry.name)
-                if not res:
-                    continue;
-            
-            age = curr_time - entry.stat().st_mtime
-            if age > age_secs:
-                files.append(entry.name)
-
-    if sort:
-        files.sort()
-
-    return files
 
 def processArgs(parser):
 
@@ -1140,14 +1143,40 @@ def processArgs(parser):
 
     parser.add_argument("-f", "--freq", type=int, nargs='+', default=FREQ_LIST, help="Limit recording processes to 1 or more frequencies. Frquency is that of the radio dial frequency in Hz. If ommited then all standard js8call frequencies will be used.")
     parser.add_argument("-m", "--mode", type=str, default="usb", help="Radio Mode (usb / lsb).")
-    parser.add_argument("-sm", "--sub_mode", type=str, nargs='+', default=SUBMODES_BYNAME,  help="Limit the recording process per frequency to a specific set of 1 or more JS7 'sub-modes' (slow, norm, fast, turbo).")
+    parser.add_argument("-sm", "--sub-mode", type=str, nargs='+', default=SUBMODES_BYNAME,  help="Limit the recording process per frequency to a specific set of 1 or more JS7 'sub-modes' (slow, norm, fast, turbo).")
     parser.add_argument("-d", "--data-dir", type=str, default=DEFAULT_DATA_DIR, help="Data directory for storing (recordings, decodes, logs etc).")
     parser.add_argument("-ma", "--mcast-addr", type=str, default=DEFAULT_MCAST_ADDR, help="Enable verbose output")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose output")
+    parser.add_argument("--aprsis", action="store_true", help="Enables processing received APRSIS commands (ie position reporting)")
+    parser.add_argument("--aprs-host", type=str, default=DEFAULT_APRS_HOST, help="APRSIS Host name / IP")
+    parser.add_argument("--aprs-port", type=int, default=DEFAULT_APRS_PORT, help="APRSIS Port")
+    parser.add_argument("--aprs-user", type=str, help="Enables processing APRSIS commands (ie position reporting)")
+    parser.add_argument("--aprs-passcode", type=str, help="APRSIS password (see https://apps.magicbug.co.uk/passcode/)")
+    parser.add_argument("--aprs-reporter", type=str, help="Callsign to be used as the reporter.")
     
     args = parser.parse_args()
 
     return args
+
+def initAprsReporter(args):
+    
+    if (args.aprsis):
+
+        if isEmpty(args.aprs_reporter):
+            logError("APRIS processing enabled - APRS Reporter is required.", -1)
+
+        if isEmpty(args.aprs_user):
+            logError("APRIS processing enabled - APRS User is required.", -1)
+
+        if isEmpty(args.aprs_passcode):
+            logError("APRIS processing enabled - APRS Passcode is required.", -1)            
+
+        log_fn = f"{args.data_dir}/aprsis_frames.log"
+        return APRSReporter(reporter=args.aprs_reporter, 
+                            user=args.aprs_user, passcode=args.aprs_passcode, 
+                            host=args.aprs_host, port=args.aprs_port, log_fn=log_fn)
+
+    return None
 
 ########
 ## Main
@@ -1157,8 +1186,9 @@ def main():
     
     parser = argparse.ArgumentParser(description="KA9Q-Radio Js8 Decoding Controler.")
     args = processArgs(parser)
-    
-    js8_dc = Js8DecodingControl(args.freq, args.sub_mode, args.data_dir, args.mcast_addr)
+        
+    aprsReporter = initAprsReporter(args)
+    js8_dc = Js8DecodingControl(args.freq, args.sub_mode, args.data_dir, args.mcast_addr, aprsReporter=aprsReporter)
 
     logger.info(f"Performing Process: [{args.process}] Action: [{args.action}]")
 
@@ -1191,7 +1221,7 @@ def main():
         js8_dc.rebuildAllDecodes(args.print_only);
     
     elif (args.process == "rebuild-history"):
-        js8_dc.rebuildCallsignHistory(args.print_only);
+        js8_dc.rebuildCallsignHistory(args.print_only, aprsReporter=aprsReporter);
 
     else:
         logger.error(f"Unknown process: {args.command} requested.")
