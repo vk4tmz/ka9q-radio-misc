@@ -155,12 +155,12 @@ def testAPRSPosition():
         aprsReporter.reportAprsPosition(callsign="VK4TAA/MM", grid_locator="QG62ms", comment="Testing APRSIS feed.")
 
     except aprslib.exceptions.LoginError as e:
-        print(f"Login failed: {e}")
+        logger.error(f"Login failed: {e}")
     except Exception as e:
-        print(f"An error occurred: {e}")
+        logger.error(f"An error occurred: {e}")
     finally:
-        print("Disconnected from APRS-IS.")
+        logger.info("Disconnected from APRS-IS.")
 
 
 # Main
-testAPRSPosition()
+#testAPRSPosition()
