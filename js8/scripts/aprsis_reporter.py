@@ -8,7 +8,7 @@
 ##
 ###############
 
-import aprs
+import aprslib
 import re
 import logging
 import maidenhead as mh
@@ -35,6 +35,8 @@ class APRSReporter:
 
     log_fn: str;
 
+    AIS = None
+
     def __init__(self, reporter:str, user:str, passcode:str, reporting_enabled:bool=True, host:str=DEFAULT_APRS_HOST, port:int=DEFAULT_APRS_PORT, log_fn: str=DEFAULT_LOG_FN):
         self.reporter = reporter.upper()
         self.log_fn = log_fn
@@ -43,8 +45,8 @@ class APRSReporter:
         self.aprs_port=port
         self.aprs_user=user
         self.aprs_passcode=passcode
-
-        logger.info(f"DEBUG: APRSReport's log file: [{self.log_fn}]")
+        self.AIS = aprslib.IS(callsign=user, passwd=passcode, host=host, port=port) 
+        self.AIS.connect()
 
 
     def grid2aprs(self, grid_locator: str):
@@ -108,11 +110,11 @@ class APRSReporter:
             return callsign
 
     def sendFrame(self, frame):
-        with aprs.TCP(user=self.aprs_host, passcode=self.aprs_passcode, host=self.aprs_host, port=self.aprs_port) as a:
-            logger.debug(f"Reporting APRS Frame: [{frame}].")
-            if self.aprs_reporting_enabled:
-                writeStringToFile(self.log_fn, f"{str(frame)}\n", True)
-                # a.write(frame)
+        
+        logger.info(f"APRS Frame: [{frame}] - APRS Reporting Enabled: [{self.aprs_reporting_enabled}]")
+        if self.aprs_reporting_enabled:
+            writeStringToFile(self.log_fn, f"{str(frame)}\n", True)
+            self.AIS.sendall(frame)
 
 
     def reportAprsPosition(self, callsign: str, grid_locator:str, comment: str):
@@ -130,11 +132,35 @@ class APRSReporter:
 
         # Format APRS Position report
         frame_msg = f"{callsign_nosuffix.upper()}>APJ8CL,qAS,{self.reporter}:{msg}"
-        logger.info(f"DEBUG: frame: [{frame_msg}]")
-        frame = aprs.APRSFrame.from_str(frame_msg)
 
-        self.sendFrame(frame)
+        # Valid Message and send if ok
+        try:
+            packet = aprslib.parse(frame_msg)
+            logger.debug(f"APRS packet Parsed: [{packet}]")
+
+            self.sendFrame(frame_msg)
+        except (aprslib.ParseError, aprslib.UnknownFormat) as exp:
+            logger.error(f"Error parsing APRS packet msg:[{frame_msg}].  {exp}")
 
 
 #########################
 
+
+def testAPRSPosition():
+    callsign_from = "VK4TAA"
+    reporter = "VK4TMZ"
+    try:
+        aprsReporter=APRSReporter(reporter="VK4TMZ", reporting_enabled=True, user="VK4TMZ", passcode=23719)
+        # lq, lr, ls, ms, ns ( do it slowly!! or you'll get the [Location changes too fast (adaptive limit)])
+        aprsReporter.reportAprsPosition(callsign="VK4TAA/MM", grid_locator="QG62ms", comment="Testing APRSIS feed.")
+
+    except aprslib.exceptions.LoginError as e:
+        print(f"Login failed: {e}")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+    finally:
+        print("Disconnected from APRS-IS.")
+
+
+# Main
+testAPRSPosition()

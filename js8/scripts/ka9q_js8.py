@@ -816,8 +816,8 @@ class Js8DecodingControl:
 
         # !!IMPORTANT!! 
         #    Only use aprsReporter during rebuild if debugging and issue. We DO NOT want to flood APRSIS / resend duplicates.
-        js8FrameProc = Js8FrameProcessor(aprsReporter=aprsReporter)
-        # js8FrameProc = Js8FrameProcessor(aprsReporter=None)
+        # js8FrameProc = Js8FrameProcessor(aprsReporter=aprsReporter)
+        js8FrameProc = Js8FrameProcessor(aprsReporter=None)
 
         for freq in self.freq_list:
             for submode in self.submodes:
