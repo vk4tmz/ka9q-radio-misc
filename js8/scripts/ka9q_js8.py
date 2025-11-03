@@ -61,7 +61,7 @@ SUBMODES_LOOKUP = {
 
 FREQ_LIST=[1842, 3578, 7078, 10130, 14078, 18104, 21078, 24922, 28078, 27246]
 # SSRC autogen can/will eventually vary from actualy freq_khz (ie 17m clashes with FT8/FT4)
-FREQ_SSRC=[1842, 3578, 7078, 10130, 14078, 18105, 21078, 24922, 28078, 27246]
+FREQ_SSRC=[1842, 3578, 7078, 10130, 14078, 18104, 21078, 24922, 28078, 27246]
 
 data_dir = DEFAULT_DATA_DIR
 
@@ -306,6 +306,37 @@ class Js8FrameProcessor:
         else:
             self.logger.error(f"Invalid @APRIS message: [{msg}] - skipped.")
 
+    def getOrCreateDict(self, dd:dict, key:str) -> dict:
+        if (key in dd):
+            return dd[key]
+        else:
+            new_rec = {}
+            dd[key] = new_rec
+            return new_rec
+        
+    def getOrCreateList(self, dd:dict, key:str) -> list:
+        if (key in dd):
+            return dd[key]
+        else:
+            new_list = []
+            dd[key] = new_list
+            return new_list    
+        
+
+    def addActivityByDateTimeFreq(self, cs_rec, act_rec):
+        # <Callsig>::<YYYY-MM-DD>::<HH>::<DIAL_FREQ>
+        act_dt = datetime.fromtimestamp(act_rec["timestamp"], tz=timezone.utc)
+        dt_YMD = act_dt.strftime("%Y-%m-%d")
+        dt_H = act_dt.strftime("%H")
+        dial_freq = act_rec["dial_freq"]
+
+        dtYMD_recs = self.getOrCreateDict(cs_rec["activity_YMD"], dt_YMD)
+        dtH_recs = self.getOrCreateDict(dtYMD_recs, dt_H)
+        band_recs = self.getOrCreateList(dtH_recs, dial_freq)
+
+        band_recs.append(act_rec)
+        
+
     def processFrame(self, dec: dict):
         dial_freq = dec["dial_freq"]
         offset = dec["offset"]
@@ -362,6 +393,7 @@ class Js8FrameProcessor:
                     act_rec["first_ts"] = dec["timestamp"]
                 if (dec["timestamp"] > act_rec["last_ts"]):
                     act_rec["last_ts"] = dec["timestamp"]
+
                 act_rec["offset_total"] += dec["offset"]
                 act_rec["offset"] = int(act_rec["offset_total"] / len(act_rec["msgs"]))
 
@@ -457,18 +489,23 @@ class Js8FrameProcessor:
                     act_rec["full_msg"] = full_msg
                     act_rec["timestamp"] = timestamp
                     act_rec["snr"] = snr
+                    act_rec["dial_freq"] = dial_freq
                     act_rec["freq"] = dial_freq + act_rec["offset"]
 
                     # Add / link to callsign_db
                     if callsign in self.callsigns:
                         cs_rec = self.callsigns[callsign]
+                        if (act_rec["timestamp"] > cs_rec["last_ts"]):
+                            cs_rec["last_ts"] = act_rec["timestamp"]
 
                     else:
                         #cs_rec = {"last_freq": (dial_freq+act_rec["offset"]), "last_ts": timestamp, "activity": []}
-                        cs_rec = {"last_freq": dial_freq, "last_ts": timestamp, "activity": []}
+                        cs_rec = {"last_freq": dial_freq, "first_ts": timestamp, "last_ts": timestamp, "activity": [], "activity_YMD": {}}
                         self.callsigns[callsign] = cs_rec
 
                     cs_rec["activity"].append(act_rec)
+                    self.addActivityByDateTimeFreq(cs_rec, act_rec)
+                    
 
                     # Process JS8 "@" Commands
                     if ("@APRSIS" in act_rec["full_msg"]):
