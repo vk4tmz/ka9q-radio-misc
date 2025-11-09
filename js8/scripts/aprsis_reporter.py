@@ -13,10 +13,11 @@ import re
 import logging
 import maidenhead as mh
 
+from datetime import datetime, timezone
 from math import modf
 from ka9q_js8Utils import writeStringToFile
 
-CALLSIGN_SUFFIX_REX = r"(?P<callsign>[\d\w]+)[/]?(?P<suffix>[\d\w]+)?"
+CALLSIGN_SUFFIX_REX = r"(?P<prefix>[\d\w]{,3}[/])?(?P<callsign>[\d\w]+)[/]?(?P<suffix>[\d\w]+)?"
 
 DEFAULT_APRS_HOST="asia.aprs2.net"
 DEFAULT_APRS_PORT=14580
@@ -105,7 +106,7 @@ class APRSReporter:
         match = re.match(CALLSIGN_SUFFIX_REX, callsign)
 
         if match:
-            return match.group(1)
+            return match.group('callsign')
         else:
             return callsign
 
@@ -113,7 +114,9 @@ class APRSReporter:
         
         self.logger.info(f"APRS Frame: [{frame}] - APRS Reporting Enabled: [{self.aprs_reporting_enabled}]")
         if self.aprs_reporting_enabled:
-            writeStringToFile(self.log_fn, f"{str(frame)}\n", True)
+            utc_now = datetime.now(timezone.utc)
+            fmt_dt = utc_now.strftime("%Y/%m/%d-%H:%M:%S")
+            writeStringToFile(self.log_fn, f"{fmt_dt}: {str(frame)}\n", True)
             # TODO - Need to review this library to see if we do an initial connect, does it "keep-alive" ? or a min retry ?
             #     I saw a msg come through and it did not make it to the APRSIS server. Maybe UDP vs TCP ?
             self.AIS.connect()

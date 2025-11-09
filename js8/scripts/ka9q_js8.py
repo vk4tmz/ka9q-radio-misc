@@ -21,7 +21,6 @@ import psutil
 import os
 import re
 import signal
-import shutil
 import subprocess
 import sys
 import threading
