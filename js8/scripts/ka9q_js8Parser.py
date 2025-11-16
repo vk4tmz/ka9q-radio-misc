@@ -145,14 +145,22 @@ class Js8Parser:
             }
 
 
+            # Current Main Branch uses (callsign, callsign_from, callsign_to)
             if (hasattr(frame, 'callsign')):
                 out["callsign"] = frame.callsign
 
             if (hasattr(frame, 'callsign_from')):
                 out["callsign"] = frame.callsign_from
-                
+            
             if (hasattr(frame, 'callsign_to')):
                 out["callsign_to"] = frame.callsign_to
+
+            # Current Develop Branch restructured callsign to (source['callsign'] and destination['callsign'])
+            if (hasattr(frame, 'source')):
+                out["callsign"] = frame.source['callsign']
+        
+            if (hasattr(frame, 'destination')):
+                out["callsign_to"] = frame.destination['callsign']
                 
             if (hasattr(frame, 'grid')):
                 out["locator"] = frame.grid
